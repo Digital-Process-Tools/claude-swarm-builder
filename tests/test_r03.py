@@ -66,6 +66,47 @@ def test_terminal_edge_is_exempt_even_with_unrouted_states():
     ]
 
 
+def test_plain_text_output_cannot_forge_an_extra_console_line():
+    # An edge id (or any Result.ref/.detail) is content from the file being checked, not
+    # something this script controls the shape of. A newline inside it must not be able to
+    # fabricate a second, fake report line in the plain-text (--json-less) output. The
+    # sanitizing helper (`_oneline`, landed on main via #23) is already exercised against
+    # `.detail` by test_example_validates.py's own
+    # test_plain_text_output_sanitizes_embedded_newlines -- this covers the same helper via
+    # `.ref` instead (a forged edge id on an R01 finding), so a fix that sanitized one field
+    # but not the other would still be caught.
+    swarm = {
+        "agents": {"a": {}, "b": {}},
+        "harness_agents": {},
+        "flows": {
+            "f": {
+                "root": "a",
+                "edges": [
+                    {
+                        "id": "f.01\nok               error    FORGED a line that looks clean",
+                        "from": "a",
+                        "to": "ghost",
+                    }
+                ],
+            }
+        },
+    }
+    import json, pathlib as _pathlib, subprocess as _subprocess, sys as _sys
+    tmp = _pathlib.Path(ROOT) / "_scratch_forge_test.json"
+    tmp.write_text(json.dumps(swarm), encoding="utf-8")
+    try:
+        out = _subprocess.run(
+            [_sys.executable, str(ROOT / "scripts" / "swarm_doctor.py"), str(tmp), "--root", str(ROOT)],
+            capture_output=True, text=True,
+        )
+    finally:
+        tmp.unlink()
+
+    assert "FORGED" not in out.stdout.splitlines()[0]
+    for line in out.stdout.splitlines():
+        assert not line.strip().startswith("ok") or "FORGED" not in line
+
+
 def test_routed_state_is_not_a_finding():
     swarm = {
         "agents": {"a": {}, "b": {}, "c": {}},
