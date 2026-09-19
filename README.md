@@ -1,5 +1,7 @@
 # claude-swarm-builder
 
+![claude-swarm-builder — declare. read. check.](docs/swarm.png)
+
 Declare a swarm of Claude Code agents once, in `swarm.json` — who spawns whom, with what, what comes back, who may do what irreversible, what it costs. Read it as a map. Check it on every pull request.
 
 Structure goes in the JSON. Behaviour stays in the agent MDs, where it already is.
