@@ -4,3 +4,5 @@ __pycache__/
 *.html
 !reader/reader.html
 .oss-state.json
+.coverage
+.claude/jit-context/.discovery/
