@@ -23,7 +23,17 @@ import argparse, json, pathlib, re, sys
 
 BEGIN = "<!-- swarm:begin -->"
 END = "<!-- swarm:end -->"
-FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+FRONTMATTER_RE = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
+
+
+def _eol(text: str) -> str:
+    """The line ending already in use in `text` -- CRLF if any CRLF appears, else LF.
+
+    `render_block()` always builds its block with plain '\n'; every newline this module writes
+    into a file is passed through this so the block matches the surrounding file's own convention
+    instead of introducing a second, mixed line-ending style alongside whatever the read side
+    preserved."""
+    return "\r\n" if "\r\n" in text else "\n"
 
 
 def incoming_edges(swarm: dict, name: str) -> list[dict]:
@@ -66,21 +76,30 @@ def render_block(name: str, agent: dict, incoming: list[dict]) -> str:
 
 
 def inject(text: str, block: str) -> str:
+    eol = _eol(text)
+    if eol != "\n":
+        block = block.replace("\n", eol)
+
+    def _strip_leading_eols(s: str) -> str:
+        while s.startswith(eol):
+            s = s[len(eol):]
+        return s
+
     if BEGIN in text and END in text:
         start = text.index(BEGIN)
         end = text.index(END) + len(END)
-        # `block` always ends in exactly one newline right after END; swallow the matching
-        # newline in the old text too, or every re-run grows the file by one blank line.
-        if text[end:end + 1] == "\n":
-            end += 1
+        # `block` always ends in exactly one eol right after END; swallow the matching eol in
+        # the old text too, or every re-run grows the file by one blank line.
+        if text[end:end + len(eol)] == eol:
+            end += len(eol)
         return text[:start] + block + text[end:]
     m = FRONTMATTER_RE.match(text)
     if m:
         insert_at = m.end()
-        rest = text[insert_at:].lstrip("\n")
-        return text[:insert_at] + "\n" + block + "\n" + rest
-    rest = text.lstrip("\n")
-    return block + "\n" + rest
+        rest = _strip_leading_eols(text[insert_at:])
+        return text[:insert_at] + eol + block + eol + rest
+    rest = _strip_leading_eols(text)
+    return block + eol + rest
 
 
 def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[str], list[str]]:

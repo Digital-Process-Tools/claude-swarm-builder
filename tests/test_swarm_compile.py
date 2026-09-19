@@ -62,11 +62,19 @@ def _run(swarm_path, root, extra=()):
     )
 
 
+def _write(path, content):
+    """Write exact bytes, independent of the host platform's default text-mode line-ending
+    translation -- Path.write_text(s) with no newline= (unavailable before Python 3.13 anyway)
+    silently rewrites every newline in s to os.linesep on write, so a fixture meant to pin LF
+    would become CRLF on a Windows test runner before the script under test ever saw it."""
+    path.write_bytes(content.encode("utf-8"))
+
+
 def test_compile_creates_block_after_frontmatter(tmp_path):
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps(_swarm()), encoding="utf-8")
+    _write(swarm_path, json.dumps(_swarm()))
     md = tmp_path / "worker.md"
-    md.write_text("---\ndescription: a worker.\n---\n\nHand-written body.\n", encoding="utf-8")
+    _write(md, "---\ndescription: a worker.\n---\n\nHand-written body.\n")
 
     r = _run(swarm_path, tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -85,9 +93,9 @@ def test_compile_creates_block_after_frontmatter(tmp_path):
 
 def test_compile_is_idempotent(tmp_path):
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps(_swarm()), encoding="utf-8")
+    _write(swarm_path, json.dumps(_swarm()))
     md = tmp_path / "worker.md"
-    md.write_text("---\ndescription: a worker.\n---\n\nHand-written body.\n", encoding="utf-8")
+    _write(md, "---\ndescription: a worker.\n---\n\nHand-written body.\n")
 
     assert _run(swarm_path, tmp_path).returncode == 0
     first = md.read_text(encoding="utf-8")
@@ -102,9 +110,9 @@ def test_compile_is_idempotent(tmp_path):
 
 def test_compile_inserts_at_top_without_frontmatter(tmp_path):
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps(_swarm()), encoding="utf-8")
+    _write(swarm_path, json.dumps(_swarm()))
     md = tmp_path / "worker.md"
-    md.write_text("Hand-written body, no frontmatter.\n", encoding="utf-8")
+    _write(md, "Hand-written body, no frontmatter.\n")
 
     r = _run(swarm_path, tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -115,8 +123,8 @@ def test_compile_inserts_at_top_without_frontmatter(tmp_path):
 
 def test_compile_skips_agent_with_null_md(tmp_path):
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps(_swarm()), encoding="utf-8")
-    (tmp_path / "worker.md").write_text("---\ndescription: a worker.\n---\n\nBody.\n", encoding="utf-8")
+    _write(swarm_path, json.dumps(_swarm()))
+    _write(tmp_path / "worker.md", "---\ndescription: a worker.\n---\n\nBody.\n")
 
     r = _run(swarm_path, tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -127,7 +135,7 @@ def test_compile_reports_error_on_missing_md(tmp_path):
     swarm = _swarm()
     swarm["agents"]["worker"]["md"] = "missing.md"
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps(swarm), encoding="utf-8")
+    _write(swarm_path, json.dumps(swarm))
 
     r = _run(swarm_path, tmp_path)
     assert r.returncode == 1
@@ -136,7 +144,7 @@ def test_compile_reports_error_on_missing_md(tmp_path):
 
 def test_compile_reports_error_on_no_agents(tmp_path):
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps({"name": "t", "version": 1, "agents": {}, "flows": {}}), encoding="utf-8")
+    _write(swarm_path, json.dumps({"name": "t", "version": 1, "agents": {}, "flows": {}}))
 
     r = _run(swarm_path, tmp_path)
     assert r.returncode == 1
@@ -145,7 +153,7 @@ def test_compile_reports_error_on_no_agents(tmp_path):
 
 def test_compile_preserves_crlf_line_endings(tmp_path):
     swarm_path = tmp_path / "swarm.json"
-    swarm_path.write_text(json.dumps(_swarm()), encoding="utf-8")
+    _write(swarm_path, json.dumps(_swarm()))
     md = tmp_path / "worker.md"
     # write raw CRLF bytes -- write_text would translate them away before the script even runs
     md.write_bytes(b"---\r\ndescription: a worker.\r\n---\r\n\r\nHand-written body.\r\n")
@@ -159,3 +167,15 @@ def test_compile_preserves_crlf_line_endings(tmp_path):
     assert b"---\r\ndescription: a worker.\r\n---\r\n" in raw
     assert b"Hand-written body.\r\n" in raw
     assert b"<!-- swarm:begin -->" in raw
+    # the frontmatter regex must recognize CRLF frontmatter too -- a file whose frontmatter is
+    # CRLF must not fall through to the "no frontmatter" branch and get the block inserted
+    # before it instead of after (this is exactly the bug a mismatched regex produces: CI ran
+    # green on posix because Path.read_text's universal-newline translation silently hid it,
+    # then failed on windows once read/write stopped normalizing away the real bytes)
+    assert raw.index(b"---\r\ndescription") < raw.index(b"<!-- swarm:begin -->")
+    assert raw.index(b"<!-- swarm:end -->") < raw.index(b"Hand-written body.")
+
+    # idempotent under CRLF too
+    r2 = _run(swarm_path, tmp_path)
+    assert r2.returncode == 0
+    assert md.read_bytes() == raw
