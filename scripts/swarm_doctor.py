@@ -203,6 +203,33 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
     return out
 
 
+def _shape_problem(swarm: dict) -> str | None:
+    """First reason R01/R02/R03 cannot safely walk this document's structural containers, or None.
+
+    R00 (schema) already flags a malformed shape as a finding; this only stops R01-R03 from
+    crashing on it (or from returning a bare, indistinguishable "ok") before R00's finding
+    is ever surfaced -- a shape violation was previously invisible to these rules because the
+    `not_implemented` stubs they replaced never touched swarm content at all.
+    """
+    agents = swarm.get("agents")
+    if agents is not None and not isinstance(agents, dict):
+        return "swarm['agents'] is not an object"
+    harness = swarm.get("harness_agents")
+    if harness is not None and not isinstance(harness, dict):
+        return "swarm['harness_agents'] is not an object"
+    flows = swarm.get("flows")
+    if flows is not None and not isinstance(flows, dict):
+        return "swarm['flows'] is not an object"
+    if isinstance(flows, dict):
+        for fname, flow in flows.items():
+            if not isinstance(flow, dict):
+                return f"swarm['flows'][{fname!r}] is not an object"
+            edges = flow.get("edges")
+            if edges is not None and not isinstance(edges, list):
+                return f"swarm['flows'][{fname!r}]['edges'] is not an array"
+    return None
+
+
 def _structured_edges(swarm: dict):
     """Yield (flow_name, edge_dict) for every edge that is a dict, skipping bare-string edges."""
     for fname, flow in (swarm.get("flows") or {}).items():
@@ -214,6 +241,9 @@ def _structured_edges(swarm: dict):
 def rule_r01(swarm: dict, root: pathlib.Path) -> list[Result]:
     """R01 every edge names a declared agent (from, to)."""
     rule = "R01 every edge names a declared agent (from, to)"
+    problem = _shape_problem(swarm)
+    if problem is not None:
+        return [Result(rule, "could-not-check", "error", problem)]
     known = set((swarm.get("agents") or {}).keys()) | set((swarm.get("harness_agents") or {}).keys())
     results = []
     for _fname, e in _structured_edges(swarm):
@@ -231,6 +261,9 @@ def rule_r01(swarm: dict, root: pathlib.Path) -> list[Result]:
 def rule_r02(swarm: dict, root: pathlib.Path) -> list[Result]:
     """R02 every agent is reachable from some flow root."""
     rule = "R02 every agent is reachable from some flow root"
+    problem = _shape_problem(swarm)
+    if problem is not None:
+        return [Result(rule, "could-not-check", "error", problem)]
     agents = set((swarm.get("agents") or {}).keys())
     reachable: set[str] = set()
     for _fname, flow in (swarm.get("flows") or {}).items():
@@ -263,6 +296,9 @@ def rule_r02(swarm: dict, root: pathlib.Path) -> list[Result]:
 def rule_r03(swarm: dict, root: pathlib.Path) -> list[Result]:
     """R03 every handback state is referenced by a when on another edge, or the edge is terminal."""
     rule = "R03 every handback state is referenced by a when on another edge, or the edge is terminal"
+    problem = _shape_problem(swarm)
+    if problem is not None:
+        return [Result(rule, "could-not-check", "error", problem)]
     edges = [e for _fname, e in _structured_edges(swarm)]
     results = []
     for e in edges:
