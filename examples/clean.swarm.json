@@ -1,0 +1,89 @@
+{
+  "$comment": "CI's own gate fixture (issue #20). Hand-built to stay R01-R03-clean once those rules stop being stubs; not the demonstrative example (examples/claude-oss.swarm.json), which ships its R03 finding on purpose per issue #3's own text. Non-trivial on purpose: a retry loop and a branch, so R01/R02/R03 are actually exercised rather than trivially satisfied by an empty swarm.",
+  "name": "clean-fixture",
+  "version": 1,
+  "agents": {
+    "coordinator": {
+      "md": "agents/coordinator.md",
+      "md_hash": null,
+      "summary": "Fixture root agent. Spawns builder, then routes on its handback: done goes to checker, failed retries builder once more.",
+      "model": "sonnet",
+      "tools": ["Bash", "Agent"],
+      "authority": [],
+      "lifetime": "persistent",
+      "inherits": "none",
+      "budget_bytes": 4000,
+      "cost_tokens": null,
+      "context": [],
+      "scripts": []
+    },
+    "builder": {
+      "md": "agents/builder.md",
+      "md_hash": null,
+      "summary": "Fixture worker agent. Reports done or failed.",
+      "model": "sonnet",
+      "tools": ["Bash"],
+      "authority": [],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 3000,
+      "cost_tokens": null,
+      "context": [],
+      "scripts": []
+    },
+    "checker": {
+      "md": "agents/checker.md",
+      "md_hash": null,
+      "summary": "Fixture reviewer agent. Reports approved or rejected; this flow ends either way.",
+      "model": "sonnet",
+      "tools": ["Bash"],
+      "authority": [],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 3000,
+      "cost_tokens": null,
+      "context": [],
+      "scripts": []
+    }
+  },
+  "flows": {
+    "demo": {
+      "root": "coordinator",
+      "trigger": ["manual: run for CI verification"],
+      "edges": [
+        {
+          "id": "demo.01",
+          "from": "coordinator",
+          "to": "builder",
+          "count": 1,
+          "when": "always, first action",
+          "brief": {},
+          "handback": ["done", "failed"],
+          "_note": "not terminal: both states are routed below (R03)"
+        },
+        {
+          "id": "demo.02",
+          "from": "coordinator",
+          "to": "checker",
+          "count": 1,
+          "when": "builder.handback == done",
+          "brief": {},
+          "handback": ["approved", "rejected"],
+          "terminal": true,
+          "_note": "flow ends here either way; approved/rejected route nowhere further"
+        },
+        {
+          "id": "demo.03",
+          "from": "coordinator",
+          "to": "builder",
+          "count": 1,
+          "when": "builder.handback == failed",
+          "brief": {},
+          "handback": ["done", "failed"],
+          "terminal": true,
+          "_note": "one retry, then stop regardless of outcome"
+        }
+      ]
+    }
+  }
+}
