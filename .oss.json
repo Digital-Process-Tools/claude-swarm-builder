@@ -13,7 +13,7 @@
   ],
   "labels": {
     "priority": ["priority-high", "priority-medium", "priority-low"],
-    "lanes": [],
+    "lanes": ["lane-doctor", "lane-compile", "lane-reader", "lane-schema", "lane-ci", "lane-docs"],
     "filed_by_loop": "filed-by-loop",
     "lane_other": "lane-other"
   },
