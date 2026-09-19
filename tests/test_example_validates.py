@@ -263,6 +263,23 @@ def test_write_missing_hashes_refuses_to_hash_outside_root(tmp_path):
     assert n == 0
 
 
+def test_under_root_distinguishes_oserror_from_a_real_escape(tmp_path, monkeypatch):
+    # a permission error or symlink loop hit while resolving is a could-not-check condition,
+    # not a security-relevant "this tries to escape --root" claim, and the two must never
+    # collapse into the same wording.
+    real_resolve = pathlib.Path.resolve
+
+    def _boom(self, *a, **kw):
+        if self.name == "explodes.md":
+            raise OSError("simulated permission error")
+        return real_resolve(self, *a, **kw)
+
+    monkeypatch.setattr(pathlib.Path, "resolve", _boom)
+    status, detail = swarm_doctor._under_root(tmp_path, "explodes.md")
+    assert status == "error"
+    assert "simulated permission error" in detail
+
+
 # ---- R06 — scripts declared both ways ---------------------------------------------------
 
 
@@ -307,27 +324,34 @@ def test_r06_finding_when_declared_script_escapes_root_dotdot(tmp_path):
     assert "escapes --root" in results[0].detail
 
 
-def test_r06_declared_name_with_backslash_resolves_like_a_separator(tmp_path):
+def test_r06_declared_name_with_backslash_is_one_literal_filename(tmp_path):
+    # deliberately NOT treated as a path separator: a real POSIX filename may legitimately
+    # contain a literal backslash, and normalizing it to a separator would mangle an exact,
+    # correct declaration into a different path that does not exist (a real regression found
+    # in review). A Windows-style declaration using backslash as a separator is expected to be
+    # reported as a finding on POSIX, not silently guessed at.
     (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "known.py").write_text("", encoding="utf-8")
-    swarm = {"agents": {"a": _agent(scripts=[{"name": "scripts\\known.py", "purpose": "p", "when": "w"}])}}
+    (tmp_path / "scripts" / "known\\backslash.py").write_text("", encoding="utf-8")
+    swarm = {"agents": {"a": _agent(scripts=[{"name": "scripts/known\\backslash.py", "purpose": "p", "when": "w"}])}}
     results = swarm_doctor.rule_scripts_declared(swarm, tmp_path)
     assert results == [swarm_doctor.Result(
         "R06 every declared script exists; every file under scripts/ is declared by some agent", "ok", "warning")]
 
 
-def test_r06_orphan_detection_is_case_insensitive():
-    # the orphan-detection comparison and the OS's own is_file() lookup must agree, since
-    # a case-insensitive filesystem (macOS, Windows) already treats these as the same file
+def test_r06_case_mismatch_between_declared_and_disk_is_a_known_platform_gap(tmp_path):
+    # Documents current, deliberately unfixed behavior rather than asserting a specific outcome:
+    # a declared name that differs only in case from the file on disk depends on the OS's own
+    # filesystem case-sensitivity for the "exists under --root" half of this check (is_file()),
+    # while the orphan-direction comparison is always exact-match -- so the same swarm.json can
+    # report differently on a case-sensitive filesystem (Linux) than on a case-insensitive one
+    # (macOS, Windows). See trap.d/4.r06-case-sensitivity-platform-gap.md.
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "known.py").write_text("", encoding="utf-8")
     swarm = {"agents": {"a": _agent(scripts=[{"name": "scripts/Known.py", "purpose": "p", "when": "w"}])}}
-    import tempfile, pathlib as _pl
-    with tempfile.TemporaryDirectory() as d:
-        root = _pl.Path(d)
-        (root / "scripts").mkdir()
-        (root / "scripts" / "known.py").write_text("", encoding="utf-8")
-        results = swarm_doctor.rule_scripts_declared(swarm, root)
-    # "known.py" on disk should not also be reported as an undeclared orphan of "Known.py"
-    assert not any("not declared by any agent" in r.detail for r in results)
+    results = swarm_doctor.rule_scripts_declared(swarm, tmp_path)
+    # the orphan side is always exact-match: "known.py" on disk is reported as undeclared
+    # regardless of platform, since the declared name "Known.py" never appears verbatim
+    assert any("not declared by any agent" in r.detail and "known.py" in r.detail for r in results)
 
 
 def test_plain_text_output_sanitizes_embedded_newlines(tmp_path):
