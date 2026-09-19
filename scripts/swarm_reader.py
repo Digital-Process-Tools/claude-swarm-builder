@@ -3,8 +3,10 @@
 
 Usage: swarm_reader.py SWARM_JSON [-o OUT_HTML]
 
-The reader never fetches: the artifact sandbox blocks it, and a page that carries its own data
-opens anywhere. Rebuild after every edit of swarm.json — the page is a rendering, not the source.
+The built page tries fetch('swarm.json') first, for the case it is published or served next
+to a sibling swarm.json, and falls back to this embedded payload when that fetch fails (e.g.
+opened via file://, or with no sibling present). Rebuild after every edit of swarm.json anyway —
+the embedded payload is what a page opened with no sibling, or blocked from fetching, will show.
 Exit 1 on unreadable or invalid JSON; never write a page over data it could not parse.
 """
 from __future__ import annotations

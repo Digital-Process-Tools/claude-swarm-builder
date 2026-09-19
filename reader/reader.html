@@ -120,11 +120,14 @@ a{color:var(--accent)}
 
 <script type="application/json" id="tree">__SWARM_JSON__</script>
 <script>
-const T = JSON.parse(document.getElementById('tree').textContent);
-const agents = Object.assign({}, T.agents);
-for (const [k,v] of Object.entries(T.harness_agents||{})) agents[k] = Object.assign({harness:true, md:null, model:'harness', tools:[], authority:v.authority||[], budget_bytes:null, context:[], scripts:[]}, v);
-const flows = T.flows;
+let T, agents, flows;
 let flowName = 'run', selEdge = null, selNode = null, step = -1, timer = null;
+function setData(data){
+  T = data;
+  agents = Object.assign({}, T.agents);
+  for (const [k,v] of Object.entries(T.harness_agents||{})) agents[k] = Object.assign({harness:true, md:null, model:'harness', tools:[], authority:v.authority||[], budget_bytes:null, context:[], scripts:[]}, v);
+  flows = T.flows;
+}
 
 function flowEdges(name){ const f=flows[name]; return (f.edges||[]).filter(e=>typeof e==='object'); }
 function unroutedEdges(){
@@ -206,7 +209,7 @@ function draw(){
     g.setAttribute('class','node'+(n===L.root?' root':'')+(a.harness?' human':'')+(p.leaf?' leaf':'')+(selNode===n?' sel':''));
     g.setAttribute('transform',`translate(${p.x},${p.y})`);
     const budget = a.budget_bytes? (a.budget_bytes/1000).toFixed(1)+' kB' : (a.harness?'harness':'—');
-    g.innerHTML=`<rect width="${p.w}" height="${p.h}"/><text class="n" x="12" y="22">${n}</text><text class="m" x="12" y="42">${a.model} · ${budget}</text>`;
+    g.innerHTML=`<rect width="${p.w}" height="${p.h}"/><text class="n" x="12" y="22">${esc(n)}</text><text class="m" x="12" y="42">${esc(a.model)} · ${esc(budget)}</text>`;
     g.addEventListener('click',()=>selectNode(n));
     svg.appendChild(g);
   }
@@ -253,7 +256,7 @@ function selectNode(n){
       <dt>model</dt><dd class="mono">${esc(a.model)}</dd>
       <dt>lifetime</dt><dd class="mono">${esc(a.lifetime||'—')}</dd>
       <dt>inherits</dt><dd class="mono">${esc(a.inherits||'—')}</dd>
-      <dt>budget</dt><dd class="mono budget">${a.budget_bytes? a.budget_bytes.toLocaleString()+' B ceiling':'—'} · cost ${a.cost_tokens??'not measured'}</dd>
+      <dt>budget</dt><dd class="mono budget">${a.budget_bytes? a.budget_bytes.toLocaleString()+' B ceiling':'—'} · cost ${esc(a.cost_tokens??'not measured')}</dd>
       <dt>tools</dt><dd>${chips(Array.isArray(a.tools)?a.tools:[a.tools])}</dd>
       <dt>authority</dt><dd>${chips(a.authority,'auth')}</dd>
     </dl>
@@ -330,13 +333,23 @@ function overview(){
 }
 function setFlow(n){ flowName=n; selEdge=null; selNode=null; step=-1; stopPlay(); draw(); overview();
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.f===n)); }
-function next(){ const E=flowEdges(flowName); if(!E.length) return; selectEdge((step+1)%E.length); }
-function prev(){ const E=flowEdges(flowName); if(!E.length) return; selectEdge((step-1+E.length)%E.length); }
+function next(){ if(!flows) return; const E=flowEdges(flowName); if(!E.length) return; selectEdge((step+1)%E.length); }
+function prev(){ if(!flows) return; const E=flowEdges(flowName); if(!E.length) return; selectEdge((step-1+E.length)%E.length); }
 function stopPlay(){ if(timer){clearInterval(timer); timer=null; document.getElementById('play').textContent='▶';} }
 document.getElementById('next').onclick=next; document.getElementById('prev').onclick=prev;
 document.getElementById('play').onclick=()=>{ if(timer){stopPlay();return;} next(); timer=setInterval(next,2600); document.getElementById('play').textContent='❚❚'; };
-document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); if(e.key==='Escape'){stopPlay(); overview(); selEdge=null; selNode=null; step=-1; draw();} });
-const tabs=document.getElementById('tabs');
-for(const n of Object.keys(flows)){ const b=document.createElement('button'); b.textContent='/oss:'+n; b.dataset.f=n; b.setAttribute('role','tab'); b.onclick=()=>setFlow(n); tabs.appendChild(b); }
-setFlow('run');
+document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); if(e.key==='Escape'){ if(!flows) return; stopPlay(); overview(); selEdge=null; selNode=null; step=-1; draw();} });
+function init(data){
+  setData(data);
+  const tabs=document.getElementById('tabs'); tabs.innerHTML='';
+  for(const n of Object.keys(flows)){ const b=document.createElement('button'); b.textContent='/oss:'+n; b.dataset.f=n; b.setAttribute('role','tab'); b.onclick=()=>setFlow(n); tabs.appendChild(b); }
+  setFlow('run');
+}
+// A sibling swarm.json (published, or served locally next to this page) is the thing you
+// edit; the embedded payload below is only the fallback for file:// or a missing sibling.
+const embedded = JSON.parse(document.getElementById('tree').textContent);
+fetch('swarm.json')
+  .then(r => r.ok ? r.json() : Promise.reject(new Error('http '+r.status)))
+  .then(init)
+  .catch(() => init(embedded));
 </script>
