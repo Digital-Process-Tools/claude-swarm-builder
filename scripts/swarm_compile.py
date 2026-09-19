@@ -99,10 +99,14 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
             errors.append(f"{name}: md not found at {md_path}")
             continue
         try:
-            # newline="" on both read and write: no universal-newline translation, so a file's
-            # existing line endings pass through untouched instead of the whole file being
-            # rewritten to the host OS's os.linesep (LF -> CRLF on every line on Windows).
-            text = md_path.read_text(encoding="utf-8", newline="")
+            # newline="": no universal-newline translation, so a file's existing line endings
+            # pass through untouched instead of the whole file being rewritten to the host OS's
+            # os.linesep (LF -> CRLF on every line on Windows -- and CRLF -> LF on *every*
+            # platform on the read side, without this). Path.read_text/write_text only grew a
+            # newline= parameter in Python 3.13; this repo's CI runs 3.9 and 3.12, so the plain
+            # open() form is used instead -- it has carried newline= since Python 3.0.
+            with open(md_path, encoding="utf-8", newline="") as f:
+                text = f.read()
         except OSError as e:
             errors.append(f"{name}: could not read {md_path}: {e}")
             continue
@@ -111,7 +115,8 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
         if new_text != text:
             changed.append(str(md_path))
             if not check:
-                md_path.write_text(new_text, encoding="utf-8", newline="")
+                with open(md_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(new_text)
     return changed, errors
 
 
