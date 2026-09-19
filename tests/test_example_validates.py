@@ -107,6 +107,8 @@ def test_doctor_runs_and_reports_three_states(tmp_path):
     states = {r["state"] for r in results}
     assert states <= {"ok", "finding", "could-not-check"}
     assert any(r["rule"].startswith("R00") and r["state"] == "ok" for r in results)
+    assert any(r["rule"].startswith("R01") and r["state"] == "ok" for r in results)
+    assert any(r["rule"].startswith("R02") and r["state"] == "ok" for r in results)
 
 
 def test_r04_fires_broadly_on_the_example_not_just_once():

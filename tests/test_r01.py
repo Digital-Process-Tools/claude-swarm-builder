@@ -1,0 +1,38 @@
+import copy, json, pathlib, sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import swarm_doctor  # noqa: E402
+
+
+def _load_example():
+    return json.loads((ROOT / "examples" / "claude-oss.swarm.json").read_text(encoding="utf-8"))
+
+
+def _r01(swarm):
+    return swarm_doctor.rule_r01(swarm, ROOT)
+
+
+def test_example_is_ok():
+    results = _r01(_load_example())
+    assert len(results) == 1
+    assert results[0].state == "ok"
+    assert results[0].level == "error"
+
+
+def test_edge_to_ghost_is_a_finding():
+    swarm = _load_example()
+    # Point an existing edge's `to` at an agent that does not exist anywhere.
+    edge = swarm["flows"]["run"]["edges"][0]
+    assert isinstance(edge, dict)
+    edge_id = edge["id"]
+    edge["to"] = "ghost"
+
+    results = _r01(swarm)
+
+    assert any(r.state == "finding" and r.level == "error" and r.ref == edge_id for r in results)
+    finding = next(r for r in results if r.ref == edge_id)
+    assert "ghost" in finding.detail
+    # would this test still pass if the code did nothing? no: an unpatched stub
+    # only ever returns could-not-check, never "finding".
+    assert not any(r.state == "could-not-check" for r in results)

@@ -203,11 +203,95 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
     return out
 
 
+def _structured_edges(swarm: dict):
+    """Yield (flow_name, edge_dict) for every edge that is a dict, skipping bare-string edges."""
+    for fname, flow in (swarm.get("flows") or {}).items():
+        for e in (flow.get("edges") or []):
+            if isinstance(e, dict):
+                yield fname, e
+
+
+def rule_r01(swarm: dict, root: pathlib.Path) -> list[Result]:
+    """R01 every edge names a declared agent (from, to)."""
+    rule = "R01 every edge names a declared agent (from, to)"
+    known = set((swarm.get("agents") or {}).keys()) | set((swarm.get("harness_agents") or {}).keys())
+    results = []
+    for _fname, e in _structured_edges(swarm):
+        eid = e.get("id", "")
+        for key in ("from", "to"):
+            name = e.get(key)
+            if name is not None and name not in known:
+                results.append(Result(rule, "finding", "error",
+                                       f"{key}={name!r} is not a declared agent or harness_agent", eid))
+    if not results:
+        return [Result(rule, "ok", "error")]
+    return results
+
+
+def rule_r02(swarm: dict, root: pathlib.Path) -> list[Result]:
+    """R02 every agent is reachable from some flow root."""
+    rule = "R02 every agent is reachable from some flow root"
+    agents = set((swarm.get("agents") or {}).keys())
+    reachable: set[str] = set()
+    for _fname, flow in (swarm.get("flows") or {}).items():
+        root_node = flow.get("root")
+        if root_node is None:
+            continue
+        adj: dict[str, list[str]] = {}
+        for e in (flow.get("edges") or []):
+            if not isinstance(e, dict):
+                continue
+            frm, to = e.get("from"), e.get("to")
+            if frm is None or to is None:
+                continue
+            adj.setdefault(frm, []).append(to)
+        seen = {root_node}
+        stack = [root_node]
+        while stack:
+            node = stack.pop()
+            for nxt in adj.get(node, []):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        reachable |= seen
+    missing = sorted(agents - reachable)
+    if not missing:
+        return [Result(rule, "ok", "error")]
+    return [Result(rule, "finding", "error", "agent is not reachable from any flow root", name) for name in missing]
+
+
+def rule_r03(swarm: dict, root: pathlib.Path) -> list[Result]:
+    """R03 every handback state is referenced by a when on another edge, or the edge is terminal."""
+    rule = "R03 every handback state is referenced by a when on another edge, or the edge is terminal"
+    edges = [e for _fname, e in _structured_edges(swarm)]
+    results = []
+    for e in edges:
+        if e.get("terminal"):
+            continue
+        to = e.get("to")
+        handback = e.get("handback") or []
+        if isinstance(handback, str):
+            handback = [handback]
+        for state in handback:
+            needle = f"{to}.handback == {state}"
+            routed = any(needle in (other.get("when") or "") for other in edges if other is not e)
+            if not routed:
+                results.append(Result(
+                    rule, "finding", "error",
+                    f"handback state {state!r} on edge to {to!r} is referenced by no other edge's when, "
+                    f"and the edge is not terminal",
+                    e.get("id", ""),
+                ))
+    if not results:
+        return [Result(rule, "ok", "error")]
+    return results
+
+
 RULES = [
     rule_schema,
-    not_implemented("R01 every edge names a declared agent (from, to)", "error"),
-    not_implemented("R02 every agent is reachable from some flow root", "error"),
-    not_implemented("R03 every handback state is referenced by a when on another edge, or the edge is terminal", "error"),
+    rule_r01,
+    rule_r02,
+    rule_r03,
     rule_authority_subset,
     rule_md_hash_budget,
     rule_scripts_declared,
