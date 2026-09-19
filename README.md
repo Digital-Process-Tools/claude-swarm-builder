@@ -42,7 +42,7 @@ No roles in the schema — `lane`, `auditor`, `manager` are presets copied from 
 
 ## Worked example
 
-`examples/claude-oss.swarm.json` — 15 agents, 21 edges, and the six things declaring it exposed under `declared_but_unrouted`. `python3 scripts/swarm_reader.py examples/claude-oss.swarm.json` renders it.
+`examples/claude-oss.swarm.json` — 15 agents, 21 edges, and the six things declaring it exposed under `declared_but_unrouted`. `python3 scripts/swarm_reader.py examples/claude-oss.swarm.json` renders it. The built page fetches a sibling `swarm.json` when one is served next to it, and falls back to the embedded payload otherwise (opened via `file://`, or with no sibling present) — the JSON stays the thing you edit.
 
 ## Prior art
 

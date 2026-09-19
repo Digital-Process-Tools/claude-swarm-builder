@@ -120,11 +120,14 @@ a{color:var(--accent)}
 
 <script type="application/json" id="tree">__SWARM_JSON__</script>
 <script>
-const T = JSON.parse(document.getElementById('tree').textContent);
-const agents = Object.assign({}, T.agents);
-for (const [k,v] of Object.entries(T.harness_agents||{})) agents[k] = Object.assign({harness:true, md:null, model:'harness', tools:[], authority:v.authority||[], budget_bytes:null, context:[], scripts:[]}, v);
-const flows = T.flows;
+let T, agents, flows;
 let flowName = 'run', selEdge = null, selNode = null, step = -1, timer = null;
+function setData(data){
+  T = data;
+  agents = Object.assign({}, T.agents);
+  for (const [k,v] of Object.entries(T.harness_agents||{})) agents[k] = Object.assign({harness:true, md:null, model:'harness', tools:[], authority:v.authority||[], budget_bytes:null, context:[], scripts:[]}, v);
+  flows = T.flows;
+}
 
 function flowEdges(name){ const f=flows[name]; return (f.edges||[]).filter(e=>typeof e==='object'); }
 function unroutedEdges(){
@@ -336,7 +339,17 @@ function stopPlay(){ if(timer){clearInterval(timer); timer=null; document.getEle
 document.getElementById('next').onclick=next; document.getElementById('prev').onclick=prev;
 document.getElementById('play').onclick=()=>{ if(timer){stopPlay();return;} next(); timer=setInterval(next,2600); document.getElementById('play').textContent='❚❚'; };
 document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); if(e.key==='Escape'){stopPlay(); overview(); selEdge=null; selNode=null; step=-1; draw();} });
-const tabs=document.getElementById('tabs');
-for(const n of Object.keys(flows)){ const b=document.createElement('button'); b.textContent='/oss:'+n; b.dataset.f=n; b.setAttribute('role','tab'); b.onclick=()=>setFlow(n); tabs.appendChild(b); }
-setFlow('run');
+function init(data){
+  setData(data);
+  const tabs=document.getElementById('tabs'); tabs.innerHTML='';
+  for(const n of Object.keys(flows)){ const b=document.createElement('button'); b.textContent='/oss:'+n; b.dataset.f=n; b.setAttribute('role','tab'); b.onclick=()=>setFlow(n); tabs.appendChild(b); }
+  setFlow('run');
+}
+// A sibling swarm.json (published, or served locally next to this page) is the thing you
+// edit; the embedded payload below is only the fallback for file:// or a missing sibling.
+const embedded = JSON.parse(document.getElementById('tree').textContent);
+fetch('swarm.json')
+  .then(r => r.ok ? r.json() : Promise.reject(new Error('http '+r.status)))
+  .then(init)
+  .catch(() => init(embedded));
 </script>
