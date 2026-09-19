@@ -41,9 +41,17 @@ def test_reader_fetches_sibling_swarm_json_with_embedded_fallback():
     # A negative assertion needs a positive control: the page must also fail loudly, not
     # silently, when a viewer interacts with it before that fetch has settled -- next()/prev()
     # (wired to buttons and arrow keys at parse time, before init() has ever run) must no-op
-    # rather than throw against an undefined `flows`.
+    # rather than throw against an undefined `flows`. A second-pass review found the Escape
+    # handler was a second, separate path into overview()/draw() with no guard of its own.
     assert "function next(){ if(!flows) return;" in src
     assert "function prev(){ if(!flows) return;" in src
+    assert re.search(r"key==='Escape'\)\{\s*if\(!flows\) return;", src), \
+        "the Escape handler calls overview()/draw() directly and needs the same pre-init guard"
+
+    # cost_tokens sits in the same trust-widened path as the fields esc()'d in draw() -- a
+    # sibling review pass found it was the one interpolation in selectNode()'s budget line
+    # left unescaped.
+    assert "esc(a.cost_tokens" in src
 
     import tempfile
     with tempfile.TemporaryDirectory() as td:
