@@ -1,4 +1,4 @@
-import json, pathlib, subprocess, sys
+import json, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -25,11 +25,25 @@ def test_reader_fetches_sibling_swarm_json_with_embedded_fallback():
     # Issue #12: reader/reader.html should try fetch('swarm.json') first (a sibling file,
     # published or served locally) and fall back to the embedded payload when that fails.
     # No JS test harness exists in this repo, so this checks the built page's source for the
-    # fetch-then-fallback shape rather than executing it in a browser.
+    # fetch-then-fallback shape rather than executing it in a browser. That is a real limitation
+    # (self-review flagged it): these string/regex checks cannot tell "the catch body genuinely
+    # rehydrates from the embedded payload" from "the catch body is empty" the way running the
+    # code in a browser would -- so the regexes below pin down the exact call shape (`.then(init)`,
+    # `.catch(() => init(embedded))`) rather than the mere presence of `.then(`/`.catch(`, which
+    # narrows but does not close that gap.
     src = (ROOT / "reader" / "reader.html").read_text(encoding="utf-8")
     assert "fetch('swarm.json')" in src or 'fetch("swarm.json")' in src
     assert 'id="tree"' in src  # the embedded payload script tag remains, as the fallback source
-    assert ".catch(" in src  # a fetch failure path exists — this is fetch-with-fallback, not fetch-or-die
+    assert re.search(r"\.then\(init\)", src), "the success path must actually hand data to init(), not a dead branch"
+    assert re.search(r"\.catch\(\(\)\s*=>\s*init\(embedded\)\)", src), \
+        "the failure path must call init(embedded), not swallow the error silently"
+
+    # A negative assertion needs a positive control: the page must also fail loudly, not
+    # silently, when a viewer interacts with it before that fetch has settled -- next()/prev()
+    # (wired to buttons and arrow keys at parse time, before init() has ever run) must no-op
+    # rather than throw against an undefined `flows`.
+    assert "function next(){ if(!flows) return;" in src
+    assert "function prev(){ if(!flows) return;" in src
 
     import tempfile
     with tempfile.TemporaryDirectory() as td:

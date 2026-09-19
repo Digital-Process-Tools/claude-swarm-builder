@@ -209,7 +209,7 @@ function draw(){
     g.setAttribute('class','node'+(n===L.root?' root':'')+(a.harness?' human':'')+(p.leaf?' leaf':'')+(selNode===n?' sel':''));
     g.setAttribute('transform',`translate(${p.x},${p.y})`);
     const budget = a.budget_bytes? (a.budget_bytes/1000).toFixed(1)+' kB' : (a.harness?'harness':'—');
-    g.innerHTML=`<rect width="${p.w}" height="${p.h}"/><text class="n" x="12" y="22">${n}</text><text class="m" x="12" y="42">${a.model} · ${budget}</text>`;
+    g.innerHTML=`<rect width="${p.w}" height="${p.h}"/><text class="n" x="12" y="22">${esc(n)}</text><text class="m" x="12" y="42">${esc(a.model)} · ${esc(budget)}</text>`;
     g.addEventListener('click',()=>selectNode(n));
     svg.appendChild(g);
   }
@@ -333,8 +333,8 @@ function overview(){
 }
 function setFlow(n){ flowName=n; selEdge=null; selNode=null; step=-1; stopPlay(); draw(); overview();
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.f===n)); }
-function next(){ const E=flowEdges(flowName); if(!E.length) return; selectEdge((step+1)%E.length); }
-function prev(){ const E=flowEdges(flowName); if(!E.length) return; selectEdge((step-1+E.length)%E.length); }
+function next(){ if(!flows) return; const E=flowEdges(flowName); if(!E.length) return; selectEdge((step+1)%E.length); }
+function prev(){ if(!flows) return; const E=flowEdges(flowName); if(!E.length) return; selectEdge((step-1+E.length)%E.length); }
 function stopPlay(){ if(timer){clearInterval(timer); timer=null; document.getElementById('play').textContent='▶';} }
 document.getElementById('next').onclick=next; document.getElementById('prev').onclick=prev;
 document.getElementById('play').onclick=()=>{ if(timer){stopPlay();return;} next(); timer=setInterval(next,2600); document.getElementById('play').textContent='❚❚'; };
