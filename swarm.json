@@ -1,0 +1,40 @@
+{
+  "$comment": "This repository's own swarm: claude-oss builds it. The doctor here checks the loop that runs the doctor.",
+  "name": "claude-swarm-builder",
+  "version": 1,
+  "agents": {
+    "maintainer-loop": {
+      "md": null,
+      "summary": "The claude-oss plugin, run by a maintainer's session over this repo: triage, dispatch, review, merge on green, release. Its own tree is examples/claude-oss.swarm.json; this node stands for the whole of it.",
+      "model": "inherit",
+      "tools": [
+        "Bash",
+        "Agent",
+        "SendMessage",
+        "ScheduleWakeup",
+        "Skill"
+      ],
+      "authority": [
+        "merge",
+        "tag",
+        "publish"
+      ],
+      "lifetime": "persistent",
+      "inherits": "none",
+      "budget_bytes": null,
+      "context": [],
+      "scripts": []
+    }
+  },
+  "flows": {
+    "run": {
+      "root": "maintainer-loop",
+      "trigger": [
+        "human: /oss:run in a clone of this repo"
+      ],
+      "edges": [
+        "see examples/claude-oss.swarm.json \u2014 every edge there applies here unchanged"
+      ]
+    }
+  }
+}

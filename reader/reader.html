@@ -1,0 +1,342 @@
+<title>__SWARM_TITLE__</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#F4F2EC; --panel:#FBFAF7; --ink:#1B2028; --muted:#6E7684; --line:#D6D2C8;
+  --accent:#C4791C; --accent-soft:#F3E3CC; --danger:#B23A2E; --danger-soft:#F5DDD9; --ok:#3F7D4E;
+  --node:#FFFFFF; --node-line:#B9B4A8; --edge:#8E96A3; --sel:#1B2028;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#12161C; --panel:#181D25; --ink:#E4E1DA; --muted:#8A93A1; --line:#2B323C;
+  --accent:#E3A248; --accent-soft:#3A2C16; --danger:#E5675B; --danger-soft:#3D1F1B; --ok:#7BC48E;
+  --node:#1E242E; --node-line:#3A424E; --edge:#5C6673; --sel:#E4E1DA;
+}}
+:root[data-theme="dark"]{
+  --ground:#12161C; --panel:#181D25; --ink:#E4E1DA; --muted:#8A93A1; --line:#2B323C;
+  --accent:#E3A248; --accent-soft:#3A2C16; --danger:#E5675B; --danger-soft:#3D1F1B; --ok:#7BC48E;
+  --node:#1E242E; --node-line:#3A424E; --edge:#5C6673; --sel:#E4E1DA;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+h1,h2,h3,.name{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif;font-weight:600;letter-spacing:.005em;text-wrap:balance}
+header{display:flex;align-items:center;gap:20px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:18px;margin:0}
+header h1 small{color:var(--muted);font-weight:500;margin-left:8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-family:"IBM Plex Sans"}
+.tabs{display:flex;gap:4px}
+.tabs button{background:none;border:1px solid transparent;color:var(--muted);padding:4px 10px;border-radius:4px;cursor:pointer;font:inherit}
+.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--line);background:var(--ground)}
+.player{margin-left:auto;display:flex;align-items:center;gap:8px}
+.player button{background:var(--ground);border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit}
+.player button:hover{border-color:var(--ink)}
+.player button:focus-visible,.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.player .pos{color:var(--muted);min-width:9ch;text-align:center}
+main{flex:1;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(360px,1fr);min-height:0}
+#canvas{position:relative;overflow:auto;border-right:1px solid var(--line)}
+svg{display:block}
+.node rect{fill:var(--node);stroke:var(--node-line);stroke-width:1;rx:3}
+.node text{fill:var(--ink)}
+.node .n{font-family:"IBM Plex Sans Condensed";font-weight:600;font-size:14px}
+.node .m{font-family:"IBM Plex Mono";font-size:10.5px;fill:var(--muted)}
+.node{cursor:pointer}
+.node:hover rect{stroke:var(--ink)}
+.node.sel rect{stroke:var(--sel);stroke-width:2}
+.node.root rect{stroke:var(--accent);stroke-width:1.5}
+.node.human rect{stroke-dasharray:3 3}
+.node.leaf rect{fill:var(--ground)}
+.node.leaf .n{font-weight:500}
+.edge{fill:none;stroke:var(--edge);stroke-width:1.2;cursor:pointer}
+.edge.hit{stroke:transparent;stroke-width:14}
+.edge.sel{stroke:var(--accent);stroke-width:2.5}
+.edge.unrouted{stroke:var(--danger);stroke-dasharray:5 4}
+.edge.msg{stroke:var(--accent);stroke-dasharray:2 3}
+.edge.dim{opacity:.25}
+marker path{fill:var(--edge)}
+marker.acc path{fill:var(--accent)}
+marker.dan path{fill:var(--danger)}
+.legend{position:sticky;left:0;bottom:0;display:flex;gap:16px;padding:6px 14px;font-size:12px;color:var(--muted);background:var(--panel);border-top:1px solid var(--line)}
+.legend span:not(:last-child)::before{content:"";display:inline-block;width:22px;height:0;border-top:2px solid var(--edge);margin-right:6px;vertical-align:middle}
+.legend .un::before{border-top:2px dashed var(--danger)}
+.legend .ms::before{border-top:2px dotted var(--accent)}
+.legend .st::before{border-top:2px solid var(--accent)}
+#inspector{overflow:auto;padding:18px 22px;background:var(--panel)}
+.eyebrow{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+#inspector h2{font-size:22px;margin:0 0 8px}
+#inspector h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:18px 0 6px;font-weight:500;font-family:"IBM Plex Sans"}
+.summary{max-width:62ch;margin:0 0 6px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:14px;border:1px solid var(--line);border-radius:4px;padding:2px 14px 12px;background:var(--ground);margin-top:10px}
+.io h3{margin-top:12px}
+@media (max-width:1200px){.io{grid-template-columns:1fr}}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:"IBM Plex Mono";font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:3px;background:var(--ground)}
+.chip.auth{border-color:var(--accent);background:var(--accent-soft)}
+.chip.state{background:var(--ground)}
+.chip.term{color:var(--ok);border-color:var(--ok)}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0}
+dt{color:var(--muted)}
+dd{margin:0}
+ul{margin:0;padding-left:18px}
+li{margin:2px 0}
+.row{display:flex;gap:10px;align-items:baseline}
+.row .k{font-family:"IBM Plex Mono";font-size:12px;min-width:26ch;color:var(--ink)}
+.row .v{color:var(--muted)}
+.contract{border:1px solid var(--line);border-radius:4px;padding:12px 14px;margin-top:6px;background:var(--ground)}
+.contract .arrow{font-family:"IBM Plex Sans Condensed";font-size:20px;font-weight:600;display:flex;gap:10px;align-items:center}
+.contract .arrow span.a{color:var(--muted);font-weight:500}
+.note{color:var(--muted);font-size:13px;border-left:2px solid var(--line);padding-left:10px;margin-top:10px}
+.warn{color:var(--danger);border-left-color:var(--danger)}
+.step-list{margin-top:14px;border-top:1px solid var(--line)}
+.step{display:grid;grid-template-columns:3ch 1fr;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px}
+.step:hover{color:var(--accent)}
+.step.cur{color:var(--accent)}
+.step .i{font-family:"IBM Plex Mono";color:var(--muted);font-variant-numeric:tabular-nums}
+.step .w{color:var(--muted);display:block;font-size:12px}
+.budget{font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+.id{font-family:"IBM Plex Mono";font-size:11px;padding:1px 6px;border:1px solid var(--accent);color:var(--accent);background:none;border-radius:3px;cursor:pointer;vertical-align:middle}
+.id:hover{background:var(--accent-soft)}
+.id.done::after{content:" copied"}
+.eid{font-family:"IBM Plex Mono";font-size:10px;fill:var(--accent);paint-order:stroke;stroke:var(--ground);stroke-width:3px;cursor:pointer}
+.eid:hover{text-decoration:underline}
+.eid.dan{fill:var(--danger)}
+@media (max-width:900px){main{grid-template-columns:1fr;grid-template-rows:55% 45%}#canvas{border-right:0;border-bottom:1px solid var(--line)}}
+@media (prefers-reduced-motion:no-preference){.edge{transition:opacity .15s,stroke-width .15s}}
+</style>
+
+<header>
+  <h1>__SWARM_NAME__<small>swarm.json · read-only</small></h1>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <div class="player">
+    <button id="prev" title="previous step (←)">←</button>
+    <span class="pos mono" id="pos">–</span>
+    <button id="next" title="next step (→)">→</button>
+    <button id="play" title="autoplay">▶</button>
+  </div>
+</header>
+<main>
+  <div id="canvas"></div>
+  <aside id="inspector"></aside>
+</main>
+
+<script type="application/json" id="tree">__SWARM_JSON__</script>
+<script>
+const T = JSON.parse(document.getElementById('tree').textContent);
+const agents = Object.assign({}, T.agents);
+for (const [k,v] of Object.entries(T.harness_agents||{})) agents[k] = Object.assign({harness:true, md:null, model:'harness', tools:[], authority:v.authority||[], budget_bytes:null, context:[], scripts:[]}, v);
+const flows = T.flows;
+let flowName = 'run', selEdge = null, selNode = null, step = -1, timer = null;
+
+function flowEdges(name){ const f=flows[name]; return (f.edges||[]).filter(e=>typeof e==='object'); }
+function unroutedEdges(){
+  // parse "a -> b" keys from declared_but_unrouted where both are agents
+  return ((T.declared_but_unrouted||{}).items||[]).filter(u=>u.from&&u.to&&agents[u.from]&&agents[u.to]).map(u=>({id:u.id,from:u.from,to:u.to,unrouted:true,_note:u.note}));
+}
+
+function layout(name){
+  const edges = flowEdges(name);
+  const root = flows[name].root;
+  const depth = {[root]:0}; const parent = {}; const q=[root];
+  const all = [...edges, ...unroutedEdges()];
+  while(q.length){ const n=q.shift(); for(const e of all){ if(e.from===n && agents[e.to] && depth[e.to]===undefined){ depth[e.to]=depth[n]+1; parent[e.to]=n; q.push(e.to);} } }
+  const hasKids = {}; for(const e of edges){ if(depth[e.from]!==undefined && agents[e.to] && e.to!==e.from) hasKids[e.from]=true; }
+  const order = Object.keys(agents);
+  const cols = {};
+  for(const [n,d] of Object.entries(depth)) (cols[d]=cols[d]||[]).push(n);
+  const W=170,H=54,GX=120,GY=22,GROUP=34,LEAF_X=44,PAD=30;
+  const pos={};
+  // order each column: spawners first (by declaration order), then leaves grouped by their parent's order
+  const colLayouts = {};
+  let maxH=0;
+  for(const d of Object.keys(cols)){
+    const names = cols[d];
+    const spawners = names.filter(n=>hasKids[n]).sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+    const leaves = names.filter(n=>!hasKids[n]).sort((a,b)=>{ const pa=order.indexOf(parent[a]), pb=order.indexOf(parent[b]); return pa-pb || order.indexOf(a)-order.indexOf(b); });
+    let h = spawners.length*(H+GY) - (spawners.length?GY:0);
+    if(spawners.length && leaves.length) h += GROUP;
+    h += leaves.length*(H+GY) - (leaves.length?GY:0);
+    colLayouts[d]={spawners,leaves,h}; maxH=Math.max(maxH,h);
+  }
+  const totalH = maxH + PAD*2;
+  for(const [d,{spawners,leaves,h}] of Object.entries(colLayouts)){
+    let y = PAD + (maxH-h)/2;
+    const x = PAD + d*(W+GX);
+    for(const n of spawners){ pos[n]={x,y,w:W,h:H,leaf:false}; y+=H+GY; }
+    if(spawners.length && leaves.length) y += GROUP-GY;
+    for(const n of leaves){ pos[n]={x:x+LEAF_X,y,w:W-LEAF_X,h:H,leaf:true}; y+=H+GY; }
+  }
+  const totalW = PAD*2 + Object.keys(cols).length*(W+GX)-GX;
+  return {pos,edges,totalW,totalH,root};
+}
+
+function path(a,b,k){
+  const x1=a.x+a.w, y1=a.y+a.h/2, x2=b.x, y2=b.y+b.h/2;
+  const off = k*14;
+  const back = x2 <= x1; // same column or backwards
+  if(back){ const dy=Math.max(60,Math.abs(y2-y1)/2); return `M${x1},${y1+off} C${x1+70},${y1+off+dy} ${x2-70},${y2+off-dy} ${x2},${y2+off}`; }
+  const mx=(x1+x2)/2;
+  return `M${x1},${y1+off} C${mx},${y1+off} ${mx},${y2+off} ${x2},${y2+off}`;
+}
+
+function draw(){
+  const L = layout(flowName);
+  const svgNS='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(svgNS,'svg');
+  svg.setAttribute('width',L.totalW); svg.setAttribute('height',L.totalH); svg.setAttribute('viewBox',`0 0 ${L.totalW} ${L.totalH}`);
+  svg.innerHTML = `<defs>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ma" class="acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="md" class="dan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>`;
+  const pairCount={}; const labels=[];
+  const allEdges=[...L.edges.map((e,i)=>({e,i})), ...unroutedEdges().map(e=>({e,i:-1}))];
+  for(const {e,i} of allEdges){
+    const a=L.pos[e.from], b=L.pos[e.to]; if(!a||!b) continue;
+    const key=e.from+'>'+e.to; const k=(pairCount[key]=(pairCount[key]||0)+1)-1;
+    const d=path(a,b,k);
+    const isMsg = /SendMessage/.test(e.when||'');
+    const cls = 'edge'+(e.unrouted?' unrouted':'')+(isMsg?' msg':'')+(selEdge===i&&i>=0?' sel':'')+(selEdge!==null&&selEdge!==i&&i>=0?' dim':'');
+    const p=document.createElementNS(svgNS,'path'); p.setAttribute('d',d); p.setAttribute('class',cls);
+    p.setAttribute('marker-end', e.unrouted?'url(#md)':(selEdge===i?'url(#ma)':'url(#m)'));
+    const hit=document.createElementNS(svgNS,'path'); hit.setAttribute('d',d); hit.setAttribute('class','edge hit');
+    hit.addEventListener('click',()=>{ if(i>=0){ selectEdge(i); } else { showUnrouted(e); } });
+    svg.appendChild(p); svg.appendChild(hit);
+  }
+  for(const [n,p] of Object.entries(L.pos)){
+    const a=agents[n];
+    const g=document.createElementNS(svgNS,'g');
+    g.setAttribute('class','node'+(n===L.root?' root':'')+(a.harness?' human':'')+(p.leaf?' leaf':'')+(selNode===n?' sel':''));
+    g.setAttribute('transform',`translate(${p.x},${p.y})`);
+    const budget = a.budget_bytes? (a.budget_bytes/1000).toFixed(1)+' kB' : (a.harness?'harness':'—');
+    g.innerHTML=`<rect width="${p.w}" height="${p.h}"/><text class="n" x="12" y="22">${n}</text><text class="m" x="12" y="42">${a.model} · ${budget}</text>`;
+    g.addEventListener('click',()=>selectNode(n));
+    svg.appendChild(g);
+  }
+  const c=document.getElementById('canvas'); c.innerHTML='';
+  c.appendChild(svg);
+  const lg=document.createElement('div'); lg.className='legend';
+  lg.innerHTML='<span>spawn</span><span class="st">current step</span><span style="margin-left:auto">column = spawn depth · indented, lighter = leaf (spawns nothing)</span><span class="ms">SendMessage resume</span><span class="un">declared, not routed</span>';
+  c.appendChild(lg);
+}
+
+function chips(list, cls){ return list&&list.length? `<div class="chips">${list.map(x=>`<span class="chip ${cls||''}">${esc(x)}</span>`).join('')}</div>` : '<span class="v">none</span>'; }
+function idTag(id){ return `<button class="id" data-copy="${esc(id)}" title="copy id">${esc(id)}</button>`; }
+function copyText(v){
+  const ta=document.createElement('textarea'); ta.value=v; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0,v.length);
+  let ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+  document.body.removeChild(ta);
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(v).then(()=>{}, ()=>{}); }
+  return ok;
+}
+function wireCopy(){ document.querySelectorAll('[data-copy]').forEach(b=>{ if(b.dataset.wired) return; b.dataset.wired='1'; b.addEventListener('click',ev=>{ev.stopPropagation(); ev.preventDefault(); copyText(b.dataset.copy); b.classList.add('done'); setTimeout(()=>b.classList.remove('done'),900);}); }); }
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function selectNode(n){
+  selNode=n; selEdge=null; step=-1; stopPlay(); draw();
+  const a=agents[n];
+  const E=flowEdges(flowName);
+  const outs=E.map((e,i)=>({e,i})).filter(x=>x.e.from===n), ins=E.map((e,i)=>({e,i})).filter(x=>x.e.to===n);
+  document.getElementById('inspector').innerHTML = `
+    <p class="eyebrow">${a.harness?'harness agent':'agent'} · ${esc(a.md||'no MD in this repo')}</p>
+    <h2>${esc(n)} ${idTag(n)}</h2>
+    <p class="summary">${esc(a.summary||'')}</p>
+    <div class="io">
+      <div><h3>In — what it receives</h3>
+        ${(()=>{ const keys=new Map(); ins.forEach(x=>Object.entries(x.e.brief||{}).forEach(([k,v])=>{ if(!k.startsWith('_')) keys.set(k,v); })); const ctx=(a.context||[]).filter(c=>c.when==='always').map(c=>c.path);
+          return (keys.size? '<ul>'+[...keys].map(([k,v])=>`<li><span class="mono">${esc(k)}</span>${v?` <span class="v">— ${esc(v)}</span>`:''}</li>`).join('')+'</ul>' : (ins.length?'<span class="v">nothing beyond the spawn itself</span>':'<span class="v">root — a trigger, not a brief</span>'))
+          + (ctx.length? `<p class="v" style="margin:6px 0 0">+ loads itself: ${ctx.map(c=>`<span class="mono">${esc(c.split('/').pop())}</span>`).join(', ')}</p>`:''); })()}
+      </div>
+      <div><h3>Out — what it hands back</h3>
+        ${(()=>{ const st=new Set(); ins.forEach(x=>(x.e.handback||[]).forEach(h=>st.add(h))); if(!st.size && outs.length) return '<span class="v">root — nothing above it to hand back to</span>'; return st.size? chips([...st],'state') : '<span class="v">undeclared</span>'; })()}
+      </div>
+    </div>
+    <h3>Contract</h3>
+    <dl>
+      <dt>model</dt><dd class="mono">${esc(a.model)}</dd>
+      <dt>lifetime</dt><dd class="mono">${esc(a.lifetime||'—')}</dd>
+      <dt>inherits</dt><dd class="mono">${esc(a.inherits||'—')}</dd>
+      <dt>budget</dt><dd class="mono budget">${a.budget_bytes? a.budget_bytes.toLocaleString()+' B ceiling':'—'} · cost ${a.cost_tokens??'not measured'}</dd>
+      <dt>tools</dt><dd>${chips(Array.isArray(a.tools)?a.tools:[a.tools])}</dd>
+      <dt>authority</dt><dd>${chips(a.authority,'auth')}</dd>
+    </dl>
+    <h3>Context it loads</h3>
+    ${(a.context||[]).length? '<ul>'+a.context.map(c=>`<li><span class="mono">${esc(c.path)}</span> <span class="v">— ${esc(c.when)}${c.phase?': '+esc(c.phase):''}${c.note?' · '+esc(c.note):''}</span></li>`).join('')+'</ul>':'<span class="v">none</span>'}
+    <h3>Scripts</h3>
+    ${(a.scripts||[]).length? a.scripts.map(s=>`<div class="row"><span class="k">${esc(s.name.replace('scripts/',''))}</span><span class="v">${esc(s.purpose)} <em>(${esc(s.when)})</em></span></div>`).join('') : '<span class="v">none declared</span>'}
+    ${a._note? `<p class="note">${esc(a._note)}</p>`:''}
+    <h3>Spawns (${outs.length})</h3>
+    ${outs.length? '<ul>'+outs.map(x=>`<li>${idTag(x.e.id)} <a href="#" data-e="${x.i}">→ ${esc(x.e.to)}</a> <span class="v">${esc(x.e.when||'')}</span></li>`).join('')+'</ul>':'<span class="v">leaf — spawns nothing</span>'}
+    <h3>Spawned by (${ins.length})</h3>
+    ${ins.length? '<ul>'+ins.map(x=>`<li>${idTag(x.e.id)} <a href="#" data-e="${x.i}">${esc(x.e.from)} →</a> <span class="v">${esc(x.e.when||'')}</span></li>`).join('')+'</ul>':'<span class="v">root — nothing spawns it</span>'}
+  `;
+  wireLinks();
+}
+
+function edgeCard(e, i, total){
+  const brief = e.brief && Object.keys(e.brief).length ? '<ul>'+Object.entries(e.brief).map(([k,v])=>`<li><span class="mono">${esc(k)}</span>${v?` <span class="v">— ${esc(v)}</span>`:''}</li>`).join('')+'</ul>' : '<span class="v">nothing beyond the spawn itself</span>';
+  return `
+    <p class="eyebrow">${i>=0?`step ${i+1} of ${total}`:'declared, not routed'}</p>
+    <div class="contract">
+      <div class="arrow"><span>${esc(e.from)}</span><span class="a">→</span><span>${esc(e.to)}</span><span style="margin-left:auto">${idTag(e.id)}</span></div>
+      <dl style="margin-top:10px">
+        <dt>when</dt><dd>${esc(e.when||'—')}</dd>
+        <dt>count</dt><dd class="mono">${esc(e.count??'—')}</dd>
+        ${e.isolation?`<dt>isolation</dt><dd class="mono">${esc(e.isolation)}</dd>`:''}
+      </dl>
+    </div>
+    <h3>Brief — what the parent passes</h3>${brief}
+    <h3>Handback — what comes back</h3>${chips(e.handback,'state')}
+    ${e.terminal?'<p class="note">Terminal: these states route nowhere further by design.</p>':''}
+    ${e._note?`<p class="note ${e.unrouted?'warn':''}">${esc(e._note)}</p>`:''}
+  `;
+}
+
+function selectEdge(i){
+  selEdge=i; selNode=null; step=i; draw();
+  const E=flowEdges(flowName);
+  document.getElementById('inspector').innerHTML = edgeCard(E[i], i, E.length) + stepList(E);
+  document.getElementById('pos').textContent = `${i+1} / ${E.length}`;
+  wireLinks();
+  const cur=document.querySelector('.step.cur'); if(cur) cur.scrollIntoView({block:'nearest'});
+}
+function showUnrouted(e){
+  selEdge=null; selNode=null; step=-1; stopPlay(); draw();
+  document.getElementById('inspector').innerHTML = edgeCard(e,-1,0);
+  wireLinks();
+}
+function stepList(E){
+  return `<h3>Walk the flow</h3><div class="step-list">${E.map((e,i)=>`<div class="step ${i===step?'cur':''}" data-e="${i}"><span class="i">${esc(e.id.split('.')[1]||e.id)}</span><span><b>${esc(e.from)}</b> → <b>${esc(e.to)}</b><span class="w">${esc(e.when||'')}</span></span></div>`).join('')}</div>`;
+}
+function wireLinks(){
+  wireCopy();
+  document.querySelectorAll('[data-e]').forEach(el=>el.addEventListener('click',ev=>{ev.preventDefault(); selectEdge(+el.dataset.e);}));
+}
+function overview(){
+  const E=flowEdges(flowName); const f=flows[flowName];
+  const un=((T.declared_but_unrouted||{}).items||[]);
+  document.getElementById('inspector').innerHTML = `
+    <p class="eyebrow">flow</p><h2>${esc(flowName)}</h2>
+    <dl><dt>root</dt><dd class="mono">${esc(f.root)}</dd><dt>trigger</dt><dd>${(f.trigger||[]).map(esc).join('<br>')}</dd>
+    <dt>agents</dt><dd>${Object.keys(agents).length}</dd><dt>edges</dt><dd>${E.length}</dd></dl>
+    ${f._note?`<p class="note">${esc(f._note)}</p>`:''}
+    ${typeof (f.edges||[])[0]==='string'?`<p class="note">${esc(f.edges[0])}</p>`:''}
+    <h3>Declared but not routed (${un.length})</h3>
+    <ul>${un.map(u=>`<li>${idTag(u.id)} <b class="mono">${esc(u.from? u.from+' → '+u.to : u.subject)}</b><span class="v"> — ${esc(u.note)}</span></li>`).join('')}</ul>
+    <h3>Config · state · sinks</h3>
+    <dl><dt>config</dt><dd class="mono">${esc(T.config.path)}</dd><dt>state</dt><dd>${esc(T.state.path)}</dd>
+    <dt>sinks</dt><dd>${Object.entries(T.sinks).map(([k,v])=>`<span class="mono">${esc(k)}</span>: ${v.map(esc).join(', ')}`).join('<br>')}</dd></dl>
+    ${E.length? stepList(E):''}
+  `;
+  document.getElementById('pos').textContent = E.length? `– / ${E.length}`:'–';
+  wireLinks();
+}
+function setFlow(n){ flowName=n; selEdge=null; selNode=null; step=-1; stopPlay(); draw(); overview();
+  document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.f===n)); }
+function next(){ const E=flowEdges(flowName); if(!E.length) return; selectEdge((step+1)%E.length); }
+function prev(){ const E=flowEdges(flowName); if(!E.length) return; selectEdge((step-1+E.length)%E.length); }
+function stopPlay(){ if(timer){clearInterval(timer); timer=null; document.getElementById('play').textContent='▶';} }
+document.getElementById('next').onclick=next; document.getElementById('prev').onclick=prev;
+document.getElementById('play').onclick=()=>{ if(timer){stopPlay();return;} next(); timer=setInterval(next,2600); document.getElementById('play').textContent='❚❚'; };
+document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); if(e.key==='Escape'){stopPlay(); overview(); selEdge=null; selNode=null; step=-1; draw();} });
+const tabs=document.getElementById('tabs');
+for(const n of Object.keys(flows)){ const b=document.createElement('button'); b.textContent='/oss:'+n; b.dataset.f=n; b.setAttribute('role','tab'); b.onclick=()=>setFlow(n); tabs.appendChild(b); }
+setFlow('run');
+</script>

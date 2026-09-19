@@ -1,0 +1,21 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  pytest:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests/ -q
+      - run: python scripts/swarm_doctor.py examples/claude-oss.swarm.json --root .

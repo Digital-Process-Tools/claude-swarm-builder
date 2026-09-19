@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Digital-Process-Tools/claude-swarm-builder/schema/swarm.schema.json",
+  "title": "swarm.json",
+  "description": "One declared swarm: a catalogue of agents and one or more flows of spawn edges between them. Structure only \u2014 what an agent does lives in its MD.",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "agents",
+    "flows"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "written_by": {
+          "type": "string"
+        },
+        "keys_referenced": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "one_entry_per": {
+          "type": "string"
+        },
+        "written_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "read_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "sinks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "humans": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/human"
+      }
+    },
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/agent"
+      }
+    },
+    "harness_agents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "summary"
+        ],
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "tools": {},
+          "authority": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "flows": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/flow"
+      }
+    },
+    "declared_but_unrouted": {
+      "type": "object",
+      "properties": {
+        "_comment": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unrouted"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "human": {
+      "type": "object",
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "budget_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": [
+        "md",
+        "summary",
+        "model",
+        "tools",
+        "authority",
+        "lifetime",
+        "inherits",
+        "budget_bytes",
+        "context",
+        "scripts"
+      ],
+      "properties": {
+        "md": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "path to the hand-written behaviour file, relative to the repo root"
+        },
+        "md_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "sha256 of md at declaration; a mismatch means the declaration may be stale"
+        },
+        "summary": {
+          "type": "string",
+          "description": "the recap card: what it is, what it hands back"
+        },
+        "model": {
+          "type": "string",
+          "enum": [
+            "sonnet",
+            "opus",
+            "haiku",
+            "fable",
+            "inherit",
+            "harness"
+          ]
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "authority": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "irreversible things it may do; must be a subset of every parent's"
+        },
+        "lifetime": {
+          "type": "string",
+          "enum": [
+            "one-unit",
+            "persistent"
+          ]
+        },
+        "inherits": {
+          "type": "string",
+          "enum": [
+            "none",
+            "summary",
+            "full"
+          ],
+          "description": "what context a parent may hand in; pointers, never state"
+        },
+        "budget_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "ceiling for the fixed part: summary + scripts block + md + always-context"
+        },
+        "cost_tokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "measured per run; never hand-written"
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "when"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "when": {
+                "type": "string",
+                "enum": [
+                  "always",
+                  "on-phase"
+                ]
+              },
+              "phase": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "scripts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "purpose",
+              "when"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "when": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "_note": {
+          "type": "string"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "id",
+        "from",
+        "to",
+        "handback"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.[0-9]{2,}$"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "count": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "when": {
+          "type": "string",
+          "description": "routing only: <node>.handback == <state>, or a phase label; never an action"
+        },
+        "terminal": {
+          "type": "boolean",
+          "description": "handback states on this edge deliberately route nowhere further"
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "worktree"
+          ]
+        },
+        "brief": {
+          "type": "object",
+          "description": "what the parent passes; keys are field names, values one-line descriptions; pointers, never state"
+        },
+        "handback": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "closed set of states the child ends with"
+        },
+        "_note": {
+          "type": "string"
+        }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "required": [
+        "root",
+        "trigger",
+        "edges"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/edge"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "_note": {
+          "type": "string"
+        }
+      }
+    },
+    "unrouted": {
+      "type": "object",
+      "required": [
+        "id",
+        "note"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^U[0-9]+$"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

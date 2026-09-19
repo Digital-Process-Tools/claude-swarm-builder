@@ -1,0 +1,1219 @@
+{
+  "$comment": "Hand-declared 2026-09-19 by Max from the claude-oss MDs at ~/Documents/claude-oss (checkout of that day). Every fact here was read in a file; where it was inferred rather than read, the entry carries _unverified or a _note. Paths are relative to the plugin root. budget_bytes come from scripts/agent_budgets.py (ceiling column); cost_tokens is null until the cost feed is wired.",
+  "name": "claude-oss",
+  "version": 1,
+  "config": {
+    "path": ".oss.json",
+    "written_by": "commands/run/setup.md via oss:scheduler-step, probing the repo",
+    "keys_referenced": [
+      "repo",
+      "default_branch",
+      "release.authority (loop | maintainer | not-declared)",
+      "release.tag_pattern",
+      "release.commit_subject",
+      "release.merged_prs",
+      "release.soak_hours",
+      "trap threshold for curate (key name unverified)"
+    ]
+  },
+  "state": {
+    "path": "<state_file> passed to scripts/oss_state.py (exact path unverified)",
+    "one_entry_per": "tick: decision, reason, measurements",
+    "written_by": [
+      "tick-accounting (drafts, via oss_state.py --decision)",
+      "scheduler (triage recorded, cohort burn-down)"
+    ],
+    "read_by": [
+      "sub-manager (tick-order step 1)",
+      "scripts/next_action.py",
+      "scripts/triage_trigger.py",
+      "scripts/release_trigger.py"
+    ]
+  },
+  "sinks": {
+    "github": [
+      "issue labels",
+      "issue assignee (claim)",
+      "push",
+      "pull request",
+      "merge",
+      "tag",
+      "release publish"
+    ],
+    "state_file": [
+      "tick decisions"
+    ],
+    "trap.d": [
+      "unjudged findings"
+    ]
+  },
+  "humans": {
+    "maintainer": {
+      "summary": "Owns release.authority when .oss.json says maintainer; types /oss:run once; reads the state file. Nowhere else in the loop.",
+      "budget_bytes": null
+    }
+  },
+  "agents": {
+    "scheduler": {
+      "md": "commands/run.md",
+      "md_hash": null,
+      "summary": "The session the maintainer started. Runs /oss:run: diagnose, decide with next_action.py, spawn one step, read one handback, arm the next wakeup. Holds tag-and-publish authority by delegation to releaser only. Deliberately keeps no board summary so nothing stale is inherited.",
+      "model": "inherit",
+      "tools": [
+        "Bash",
+        "Agent",
+        "SendMessage",
+        "ScheduleWakeup",
+        "Skill"
+      ],
+      "authority": [
+        "spawn-releaser",
+        "record-state",
+        "arm-wakeup"
+      ],
+      "lifetime": "persistent",
+      "inherits": "none",
+      "budget_bytes": 10600,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "commands/run.md",
+          "when": "always"
+        },
+        {
+          "path": "commands/tick.md",
+          "when": "on-phase",
+          "phase": "dispatch"
+        },
+        {
+          "path": "commands/release.md",
+          "when": "on-phase",
+          "phase": "release-in-session"
+        },
+        {
+          "path": "commands/doctor.md",
+          "when": "on-phase",
+          "phase": "doctor-in-session"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/next_action.py",
+          "purpose": "rank what the repo needs now: unsafe | due(setup) | ranked | nothing-due; --take / --record-skip commit the choice",
+          "when": "run step 2"
+        },
+        {
+          "name": "scripts/tick_handback.py",
+          "purpose": "classify a sub-manager's framed final message into 7 states",
+          "when": "after every sub-manager spawn"
+        },
+        {
+          "name": "scripts/release_handback.py",
+          "purpose": "classify a releaser's final message into 4 states",
+          "when": "after every releaser spawn"
+        },
+        {
+          "name": "scripts/triage_trigger.py",
+          "purpose": "not-due | due | could-not-tell, from state file and last tag",
+          "when": "on RELEASE: released"
+        },
+        {
+          "name": "scripts/oss_state.py",
+          "purpose": "--decision 'triage sweep recorded' --triage-recorded, cohort burn-down --detail",
+          "when": "after a triager returns"
+        },
+        {
+          "name": "scripts/agent_role.py",
+          "purpose": "role marker under .git; the scheduler writes none",
+          "when": "never (documented absence)"
+        }
+      ]
+    },
+    "doctor": {
+      "md": "agents/doctor.md",
+      "md_hash": null,
+      "summary": "Chase one WARN/FAIL line from doctor.sh past what the script fixes itself. Read-only intent, Bash grant total. Reports one line per line chased: repaired / not-ours / could-not-tell / could-not-repair.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "repair-owned-files (via scaffold.py --apply)"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 10500,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/doctor.md",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/doctor.sh",
+          "purpose": "the diagnostic, findings-only mode",
+          "when": "first"
+        },
+        {
+          "name": "scripts/scaffold.py",
+          "purpose": "--apply repairs an owned file",
+          "when": "a line names an owned file"
+        },
+        {
+          "name": "scripts/oss_config.py",
+          "purpose": "read .oss.json",
+          "when": "as needed"
+        }
+      ]
+    },
+    "scheduler-step": {
+      "md": "agents/scheduler-step.md",
+      "md_hash": null,
+      "summary": "Run exactly one /oss:run sub-step (setup, scaffold, install-audit, triage, curate, changelog) by reading the one command file named in its prompt. Exists so the procedure's text never lands in the scheduler's long-lived context. Never dispatch, never release.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite",
+        "Skill",
+        "Agent"
+      ],
+      "authority": [
+        "write-.oss.json (setup)",
+        "write-owned-files (scaffold)",
+        "labels (triage, via triager)",
+        "open-pr (curate)"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 5700,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/scheduler-step.md",
+          "when": "always"
+        },
+        {
+          "path": "commands/run/<step>.md",
+          "when": "always",
+          "note": "the one file its prompt names"
+        }
+      ],
+      "scripts": [],
+      "_note": "Per-step scripts belong to the command file it reads: setup -> oss_config.py, oss_state.py, scaffold.py; scaffold -> scaffold.py, release_version.py; install-audit -> doctor.sh, oss_config.py; triage -> board_touch.py, oss_state.py, statusline.py; curate -> trap_curate.py; changelog -> assemble_changelog.py."
+    },
+    "sub-manager": {
+      "md": "agents/sub-manager.md",
+      "md_hash": null,
+      "summary": "Run exactly one maintainer tick, then die. Re-derives the board itself. Spawns tick-dispatch first, then the developer lanes it rendered, then tick-review, tick-merge, tick-accounting. Holds merge authority; never tags, never publishes (role marker makes release_publish.py refuse). Reports TICK: completed | blocked | could-not-run | paused.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite",
+        "Skill",
+        "Agent",
+        "SendMessage"
+      ],
+      "authority": [
+        "claim-issue",
+        "push",
+        "open-pr",
+        "merge"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 25200,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/sub-manager.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/SKILL.md",
+          "when": "always",
+          "note": "Skill(manager) as first act after the role marker"
+        },
+        {
+          "path": "skills/manager/phases/tick-order.md",
+          "when": "on-phase",
+          "phase": "after tick-dispatch returns",
+          "note": "read in windows, past the truncation threshold"
+        },
+        {
+          "path": "skills/manager/phases/dispatch.md",
+          "when": "on-phase",
+          "phase": "dispatch"
+        },
+        {
+          "path": "skills/manager/phases/handback.md",
+          "when": "on-phase",
+          "phase": "a lane returns"
+        },
+        {
+          "path": "skills/manager/phases/inbound.md",
+          "when": "on-phase",
+          "phase": "tick-order names it"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/agent_role.py",
+          "purpose": "--write sub-manager, first shell call; makes publish refuse",
+          "when": "first"
+        },
+        {
+          "name": "scripts/tick_handback.py",
+          "purpose": "validate own draft handback before sending",
+          "when": "last"
+        },
+        {
+          "name": "scripts/agent_cost.py",
+          "purpose": "measured context per lane, decides resume vs respawn-for-cost",
+          "when": "a lane comes back red"
+        },
+        {
+          "name": "scripts/release_publish.py",
+          "purpose": "named only as the call that refuses under its marker",
+          "when": "never"
+        }
+      ]
+    },
+    "tick-dispatch": {
+      "md": "agents/tick-dispatch.md",
+      "md_hash": null,
+      "summary": "Select, claim and render the dispatch payload for one tick, then die. Runs select_issues.py and lane_setup.py --claim per lane; hands back ready-to-paste Agent(...) calls. Has no Agent tool by design: the caller stays the live parent every lane's completion reaches.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "claim-issue (writes GitHub assignee)"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 7050,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/tick-dispatch.md",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/select_issues.py",
+          "purpose": "rank the board, group state per lane",
+          "when": "first"
+        },
+        {
+          "name": "scripts/lane_setup.py",
+          "purpose": "--claim --phrase --subagent-type oss:developer --model sonnet: resolves base, branch, worktree and renders the lane's Agent(...) call",
+          "when": "per lane filled"
+        }
+      ]
+    },
+    "developer": {
+      "md": "agents/developer.md",
+      "md_hash": null,
+      "summary": "Implement one lane of up to three issues in a worktree: recon first, TDD, cross-platform audit, commit, then two reviewers, then spawn lane-report as the last act. Never pushes, never opens a PR. Spine file; late phases are separate files read when reached.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite",
+        "Skill",
+        "Agent"
+      ],
+      "authority": [
+        "commit (worktree)"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 48500,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/developer.md",
+          "when": "always"
+        },
+        {
+          "path": "agents/developer/review.md",
+          "when": "on-phase",
+          "phase": "after commit, before spawning reviewers"
+        },
+        {
+          "path": "agents/developer/review-return.md",
+          "when": "on-phase",
+          "phase": "a reviewer's final message arrived"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/developer_phases.py",
+          "purpose": "budgets of the phase files; fails if the spine stops naming one",
+          "when": "CI, and named in the compliance survey"
+        },
+        {
+          "name": "scripts/tree_snapshot.py",
+          "purpose": "receipt that a read-only reviewer did not write into the worktree: clean | mutated | could-not-compare",
+          "when": "around each reviewer spawn"
+        },
+        {
+          "name": "scripts/review_return.py",
+          "purpose": "frame and classify a reviewer's return; catches a return that carried nothing",
+          "when": "each reviewer returns"
+        },
+        {
+          "name": "scripts/fix_commit_scope.py",
+          "purpose": "scope check on a fix commit after review",
+          "when": "review-return"
+        },
+        {
+          "name": "scripts/batch_hint.py",
+          "purpose": "hook-side hint to batch supertool ops",
+          "when": "hook"
+        },
+        {
+          "name": "scripts/assemble_changelog.py",
+          "purpose": "changelog fragment shape it must leave",
+          "when": "before commit"
+        }
+      ]
+    },
+    "recon": {
+      "md": "agents/recon.md",
+      "md_hash": null,
+      "summary": "Read-only reconnaissance over one lane's issues: sites, nearest tests, siblings, file set. Under 2,500 words, ends with RECON-COST: <bash calls>. Never edits, never runs the suite, never decides the fix. Per part: confirmed-by-read / already-shipped / could-not-tell.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 4500,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/recon.md",
+          "when": "always"
+        }
+      ],
+      "scripts": []
+    },
+    "auditor": {
+      "md": "agents/auditor.md",
+      "md_hash": null,
+      "summary": "Audit one committed diff against a fixed checklist of defect classes CI cannot fail on. Annotates, never blocks, writes nothing. Report opens with TREE: clean | mutated | could-not-compare, then one line per class: clean | finding | could not check.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 15600,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/auditor.md",
+          "when": "always"
+        },
+        {
+          "path": "agents/audit/shared.md",
+          "when": "always",
+          "note": "shared with release-auditor, budgeted in scripts/audit_shared.py"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/tree_snapshot.py",
+          "purpose": "the receipt its TREE: line reports",
+          "when": "start and end"
+        }
+      ]
+    },
+    "lane-report": {
+      "md": "agents/lane-report.md",
+      "md_hash": null,
+      "summary": "Compose one lane's note, JSON report (schemas/agent-report.schema.json) and pull request payload, then die. Derives diff, issue bodies and schema itself; the lane hands over only what it alone knows. Spawned by developer as its last act.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [],
+      "lifetime": "one-unit",
+      "inherits": "summary",
+      "budget_bytes": 15100,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/lane-report.md",
+          "when": "always"
+        },
+        {
+          "path": "schemas/agent-report.schema.json",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/report_schema.py",
+          "purpose": "validate the JSON report",
+          "when": "before handing back"
+        },
+        {
+          "name": "scripts/agent_cost.py",
+          "purpose": "cost figures for the report",
+          "when": "composing"
+        }
+      ]
+    },
+    "tick-review": {
+      "md": "agents/tick-review.md",
+      "md_hash": null,
+      "summary": "Wait for CI on exactly the PR numbers it was given (pr_green.py --wait, one call per PR), then apply the maintainer's review checklist and route findings itself (file issue, comment, below-bar line). Reports REVIEW: reviewed (decision per PR: ready-to-merge | needs-fix) | pending | could-not-run. Inherits the sub-manager marker.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "file-issue",
+        "comment-pr",
+        "edit-pr-body"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 14100,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/tick-review.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/phases/ci-green.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/phases/review.md",
+          "when": "on-phase",
+          "phase": "CI resolved"
+        },
+        {
+          "path": "skills/manager/phases/findings.md",
+          "when": "on-phase",
+          "phase": "a finding to route"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/pr_green.py",
+          "purpose": "--wait --timeout T per PR",
+          "when": "first"
+        },
+        {
+          "name": "scripts/tree_snapshot.py",
+          "purpose": "receipt around review",
+          "when": "review"
+        }
+      ]
+    },
+    "tick-merge": {
+      "md": "agents/tick-merge.md",
+      "md_hash": null,
+      "summary": "Merge exactly one reviewed PR: confirm-gated merge, post-merge obligations, default-branch recheck. Reports MERGE: merged | not-merged | could-not-run, plus a CURATE: line when merge.md says so. Inherits the sub-manager marker (merge allowed, publish refused).",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "merge"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 8000,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/tick-merge.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/phases/merge.md",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/lane_setup.py",
+          "purpose": "named by merge.md for post-merge worktree cleanup (which flag: unverified)",
+          "when": "post-merge"
+        }
+      ]
+    },
+    "tick-accounting": {
+      "md": "agents/tick-accounting.md",
+      "md_hash": null,
+      "summary": "Write the tick's state-file entry (oss_state.py --decision, lane fills, dispatch states, merge facts) and draft the validated TICK: handback block. Cannot send it: only the spawner's final message reaches the scheduler, so sub-manager pastes it verbatim. Reports ACCOUNTING: drafted | could-not-run.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "record-state"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "summary",
+      "budget_bytes": 8500,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/tick-accounting.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/phases/accounting.md",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/oss_state.py",
+          "purpose": "--decision with --lane-fill, --lane-dispatch-state, --detail; refuses an unreasoned short lane",
+          "when": "main"
+        },
+        {
+          "name": "scripts/tick_handback.py",
+          "purpose": "validate the drafted block",
+          "when": "before handing back"
+        }
+      ]
+    },
+    "triager": {
+      "md": "agents/triager.md",
+      "md_hash": null,
+      "summary": "Keep the tracker honest: priority, lane, milestone labels; surface what the board is lying about; name clusters one change would fix. POST labels, never PATCH. Never touches code, never closes an issue. Report is a table per issue plus refused list plus a required Clusters row: clusters | none | could not look.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "labels",
+        "milestones"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 16600,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/triager.md",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/ranking_table.py",
+          "purpose": "the ranking rows it cites",
+          "when": "per issue"
+        }
+      ]
+    },
+    "releaser": {
+      "md": "agents/releaser.md",
+      "md_hash": null,
+      "summary": "Run one release end to end from a fresh context: the six gates of commands/release.md, version sites, tag, publish. The only agent holding tag-and-publish authority, and only when release.authority in .oss.json is loop. Writes no role marker. Reports RELEASE: released | refused | could-not-run | paused.",
+      "model": "sonnet",
+      "tools": [
+        "Bash",
+        "TodoWrite",
+        "Skill",
+        "Agent"
+      ],
+      "authority": [
+        "merge (gate 3 blocking fix)",
+        "tag",
+        "publish"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "none",
+      "budget_bytes": 7800,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/releaser.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/SKILL.md",
+          "when": "always"
+        },
+        {
+          "path": "commands/release.md",
+          "when": "always",
+          "note": "the six gates; single source, not restated"
+        },
+        {
+          "path": "skills/manager/phases/release.md",
+          "when": "always"
+        },
+        {
+          "path": "skills/manager/phases/ci-green.md",
+          "when": "on-phase",
+          "phase": "gate 3 needs a fix merged"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/release_delta.py",
+          "purpose": "the delta since last tag",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/release_version.py",
+          "purpose": "version sites",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/release_ci_wait.py",
+          "purpose": "wait CI on the release commit",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/release_publish.py",
+          "purpose": "tag + publish; refuses under a sub-manager marker",
+          "when": "last gate"
+        },
+        {
+          "name": "scripts/checklist_skew.py",
+          "purpose": "gate check",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/cohort_citation_order.py",
+          "purpose": "cohort label ordering",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/cohort_freeze_record.py",
+          "purpose": "cohort label on every open issue at tag",
+          "when": "after tag"
+        },
+        {
+          "name": "scripts/plugin_update.py",
+          "purpose": "plugin version bump",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/push_bypass.py",
+          "purpose": "push past branch protection for the release commit",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/trap_curate.py",
+          "purpose": "curate receipt",
+          "when": "gate"
+        },
+        {
+          "name": "scripts/ranking_table.py",
+          "purpose": "ranking rows in the audit payload",
+          "when": "gate"
+        }
+      ],
+      "_note": "Scripts are commands/release.md's; the releaser owns them by following that file. It must NOT write a role marker (agent_role.py)."
+    },
+    "release-auditor": {
+      "md": "agents/release-auditor.md",
+      "md_hash": null,
+      "summary": "Audit the whole delta since the last tag before it is tagged: composition defects no per-PR review sees. A release gate: could not run stops the release. Two rounds, hard cap. VERDICT: clean | findings | could not run.",
+      "model": "opus",
+      "tools": [
+        "Bash",
+        "TodoWrite"
+      ],
+      "authority": [
+        "block-release"
+      ],
+      "lifetime": "one-unit",
+      "inherits": "summary",
+      "budget_bytes": 16400,
+      "cost_tokens": null,
+      "context": [
+        {
+          "path": "agents/release-auditor.md",
+          "when": "always"
+        },
+        {
+          "path": "agents/audit/shared.md",
+          "when": "always"
+        }
+      ],
+      "scripts": [
+        {
+          "name": "scripts/release_delta.py",
+          "purpose": "the range it audits",
+          "when": "first"
+        },
+        {
+          "name": "scripts/tree_snapshot.py",
+          "purpose": "receipt that it wrote nothing",
+          "when": "start and end"
+        }
+      ]
+    }
+  },
+  "harness_agents": {
+    "Explore": {
+      "summary": "Built-in read-only search agent, spawned by developer as the second reviewer alongside auditor.",
+      "tools": "harness default",
+      "authority": []
+    }
+  },
+  "flows": {
+    "run": {
+      "root": "scheduler",
+      "trigger": [
+        "human: /oss:run typed once",
+        "own-wakeup: ScheduleWakeup armed by step 7"
+      ],
+      "edges": [
+        {
+          "id": "run.01",
+          "from": "scheduler",
+          "to": "doctor",
+          "count": 1,
+          "when": "run step 1, every start",
+          "brief": {},
+          "handback": [
+            "repaired",
+            "not-ours",
+            "could-not-tell",
+            "could-not-repair"
+          ],
+          "terminal": true,
+          "_note": "one line per WARN/FAIL; never stops the session by itself"
+        },
+        {
+          "id": "run.02",
+          "from": "scheduler",
+          "to": "scheduler-step",
+          "count": 1,
+          "when": "next_action == due(setup)",
+          "brief": {
+            "command_file": "commands/run/setup.md"
+          },
+          "handback": [
+            "report (free prose, shape unverified)"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.03",
+          "from": "scheduler",
+          "to": "scheduler-step",
+          "count": 1,
+          "when": "next_action.candidates[0].source in {scaffold, install-audit, triage, curate, changelog} or forced by $ARGUMENTS",
+          "brief": {
+            "command_file": "commands/run/<step>.md"
+          },
+          "handback": [
+            "report (free prose, shape unverified)"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.04",
+          "from": "scheduler-step",
+          "to": "triager",
+          "count": 1,
+          "when": "command_file == commands/run/triage.md",
+          "brief": {},
+          "handback": [
+            "table + refused + Clusters: clusters | none | could not look"
+          ],
+          "terminal": true,
+          "_note": "scheduler records the sweep with oss_state.py --triage-recorded after this returns"
+        },
+        {
+          "id": "run.05",
+          "from": "scheduler",
+          "to": "releaser",
+          "count": 1,
+          "when": "next_action.candidates[0].source == release",
+          "brief": {},
+          "handback": [
+            "released",
+            "refused",
+            "could-not-run",
+            "paused"
+          ]
+        },
+        {
+          "id": "run.06",
+          "from": "scheduler",
+          "to": "triager",
+          "count": 1,
+          "when": "releaser.handback == released and triage_trigger.py == due",
+          "brief": {},
+          "handback": [
+            "table + refused + Clusters"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.07",
+          "from": "scheduler",
+          "to": "sub-manager",
+          "count": 1,
+          "when": "next_action == nothing-due, or candidates[0] is inbound / could-not-tell (dispatch)",
+          "brief": {
+            "token": "per-spawn hex token, minted first, stated in the call"
+          },
+          "handback": [
+            "completed",
+            "blocked",
+            "could-not-run",
+            "paused",
+            "returned-nothing",
+            "could-not-classify",
+            "could-not-read"
+          ],
+          "_note": "last three are computed by tick_handback.py, never written by the sub-manager; completed carries TICK-ENDS: work-started | blocked | nothing-left"
+        },
+        {
+          "id": "run.08",
+          "from": "scheduler",
+          "to": "releaser",
+          "count": 1,
+          "when": "sub-manager.handback == completed and its paragraph reports a release trigger fired",
+          "brief": {},
+          "handback": [
+            "released",
+            "refused",
+            "could-not-run",
+            "paused"
+          ]
+        },
+        {
+          "id": "run.09",
+          "from": "scheduler",
+          "to": "sub-manager",
+          "count": 1,
+          "when": "sub-manager.handback == returned-nothing (one re-spawn, then stop)",
+          "brief": {
+            "token": "fresh"
+          },
+          "handback": [
+            "same seven"
+          ]
+        },
+        {
+          "id": "run.10",
+          "from": "sub-manager",
+          "to": "tick-dispatch",
+          "count": 1,
+          "when": "very first action, before tick-order.md",
+          "brief": {},
+          "handback": [
+            "rendered",
+            "none-available",
+            "could-not-select"
+          ]
+        },
+        {
+          "id": "run.11",
+          "from": "sub-manager",
+          "to": "developer",
+          "count": "1..3 lanes, each 1..3 issues",
+          "when": "tick-dispatch.handback == rendered; the Agent(...) calls pasted verbatim",
+          "isolation": "worktree",
+          "brief": {
+            "issues": "list of issue numbers",
+            "worktree": "path",
+            "_rule": "lane_setup.py renders it; the sub-manager writes nothing into it (#1535)"
+          },
+          "handback": [
+            "lane-report JSON (schemas/agent-report.schema.json) + PR payload",
+            "red / silent: resumed via SendMessage or respawned-for-cost"
+          ]
+        },
+        {
+          "id": "run.12",
+          "from": "sub-manager",
+          "to": "tick-review",
+          "count": 1,
+          "when": "a PR from this tick's dispatch is open and no lane label is free with candidates",
+          "brief": {
+            "pr_numbers": "exactly the PRs open this tick, plus superseded_by_pr ones"
+          },
+          "handback": [
+            "reviewed",
+            "pending",
+            "could-not-run"
+          ]
+        },
+        {
+          "id": "run.13",
+          "from": "sub-manager",
+          "to": "tick-merge",
+          "count": "1 per PR",
+          "when": "tick-review.handback == reviewed and decision == ready-to-merge",
+          "brief": {
+            "pr_number": "one"
+          },
+          "handback": [
+            "merged",
+            "not-merged",
+            "could-not-run"
+          ]
+        },
+        {
+          "id": "run.14",
+          "from": "sub-manager",
+          "to": "developer",
+          "count": 1,
+          "when": "tick-review decision == needs-fix (resume via SendMessage, not a spawn; respawn only for cost)",
+          "brief": {
+            "finding": "the review finding"
+          },
+          "handback": [
+            "same as lane"
+          ],
+          "_note": "SendMessage edge, not Agent; modelled as an edge so the route is visible"
+        },
+        {
+          "id": "run.15",
+          "from": "sub-manager",
+          "to": "tick-accounting",
+          "count": 1,
+          "when": "dispatch, review and merge outcomes known (tick end)",
+          "brief": {
+            "lane_fills": "PRIMARY:COUNT[:REASON] per lane",
+            "dispatch_states": "per lane",
+            "merge_facts": "incl. any CURATE: line"
+          },
+          "handback": [
+            "drafted",
+            "could-not-run"
+          ]
+        },
+        {
+          "id": "run.16",
+          "from": "developer",
+          "to": "recon",
+          "count": 1,
+          "when": "first thing, before touching the tree",
+          "brief": {
+            "issues": "numbers",
+            "worktree": "path",
+            "instruction": "locate, do not design"
+          },
+          "handback": [
+            "summary <=2500 words + RECON-COST",
+            "refused at depth (observed 2026-09-09), reported under compliance"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.17",
+          "from": "developer",
+          "to": "auditor",
+          "count": 1,
+          "when": "after commit, same message as Explore",
+          "brief": {
+            "diff": "committed diff",
+            "issue": "number",
+            "intent": "one line"
+          },
+          "handback": [
+            "TREE: clean|mutated|could-not-compare; per class clean | finding | could not check",
+            "returned nothing (review_return.py)"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.18",
+          "from": "developer",
+          "to": "Explore",
+          "count": 1,
+          "when": "after commit, same message as auditor",
+          "brief": {
+            "diff": "committed diff",
+            "issue": "number",
+            "intent": "one line"
+          },
+          "handback": [
+            "free prose",
+            "returned nothing"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.19",
+          "from": "developer",
+          "to": "lane-report",
+          "count": 1,
+          "when": "last act, after every finding disposed",
+          "brief": {
+            "worktree": "root",
+            "branch": "",
+            "issues": "",
+            "findings_with_disposition": "",
+            "compliance_survey": "",
+            "test_commands": "red/green exact",
+            "tree_snapshot_verdict": "",
+            "adjacent_findings": "",
+            "tooling_friction": "",
+            "disagreement_with_brief": "",
+            "incremental_note": ""
+          },
+          "handback": [
+            "note + JSON report + PR payload (4 fields)"
+          ],
+          "terminal": true
+        },
+        {
+          "id": "run.20",
+          "from": "releaser",
+          "to": "release-auditor",
+          "count": "1, up to 2 rounds",
+          "when": "commands/release.md gate before tag",
+          "brief": {
+            "payload": "verbatim",
+            "dispatch_token": "",
+            "round": "1|2"
+          },
+          "handback": [
+            "clean",
+            "findings",
+            "could not run"
+          ],
+          "_note": "could not run stops the release; a spawn that did not run is could not run, never clean"
+        },
+        {
+          "id": "run.21",
+          "from": "sub-manager",
+          "to": "triager",
+          "count": "1 lane",
+          "when": "dispatch.md:45 — the deliverable is a label, not a diff (a board lane)",
+          "brief": {},
+          "handback": [
+            "table + refused + Clusters: clusters | none | could not look"
+          ],
+          "terminal": true,
+          "_note": "Spawn string is literal at skills/manager/phases/dispatch.md:73 (#862). Since #1544 the render step is tick-dispatch, whose lane_setup.py call hard-codes --subagent-type oss:developer (tick-dispatch.md:62); nothing renders a triager lane, and dispatch.md:80 forbids composing the call by hand (#989). Declared route, no mechanism. See U1."
+        }
+      ]
+    },
+    "tick": {
+      "root": "scheduler",
+      "trigger": [
+        "human: /oss:tick"
+      ],
+      "_note": "Same edges as run's dispatch branch, without next_action.py in front. Separate flow because commands/tick.md is still a top-level command (#1630 open).",
+      "edges": [
+        "see run: scheduler -> sub-manager and everything below it; scheduler -> releaser on trigger; scheduler -> triager on released+due"
+      ]
+    },
+    "release": {
+      "root": "scheduler",
+      "trigger": [
+        "human: /oss:release"
+      ],
+      "_note": "The session itself follows commands/release.md; same gates as releaser, the session holding the maintainer's authority.",
+      "edges": [
+        {
+          "id": "release.01",
+          "from": "scheduler",
+          "to": "release-auditor",
+          "count": "1, up to 2 rounds",
+          "when": "gate before tag",
+          "brief": {
+            "payload": "verbatim",
+            "dispatch_token": "",
+            "round": "1|2"
+          },
+          "handback": [
+            "clean",
+            "findings",
+            "could not run"
+          ]
+        }
+      ]
+    },
+    "doctor": {
+      "root": "scheduler",
+      "trigger": [
+        "human: /oss:doctor"
+      ],
+      "edges": [
+        {
+          "id": "doctor.01",
+          "from": "scheduler",
+          "to": "doctor",
+          "count": 1,
+          "when": "doctor.sh verdict is not ok",
+          "brief": {},
+          "handback": [
+            "repaired",
+            "not-ours",
+            "could-not-tell",
+            "could-not-repair"
+          ],
+          "terminal": true
+        }
+      ]
+    }
+  },
+  "declared_but_unrouted": {
+    "_comment": "States and mentions that exist in prose with no edge above. A doctor would flag these; listed so the first reader run shows them rather than hides them.",
+    "items": [
+      {
+        "id": "U1",
+        "from": "sub-manager",
+        "to": "triager",
+        "note": "Corrected 2026-09-19 after tracing. The spawn does exist in prose: dispatch.md:73 spells Agent(subagent_type: \"oss:triager\") and sub-manager reads that file — now edge run.21. The gap is one step later: the render path every tick actually uses (tick-dispatch → lane_setup.py --claim) hard-codes oss:developer, so no tick can produce a triager lane without hand-composing the call, which #989 forbids. Live triager spawns are the scheduler's only (run.04, run.06). Either retire the triager-lane rule from dispatch.md:45/73, or teach lane_setup.py a --subagent-type oss:triager the dispatcher can choose."
+      },
+      {
+        "id": "U2",
+        "from": "tick-dispatch",
+        "to": "recon",
+        "note": "dispatch.md:55-62 tells the dispatcher to spawn oss:recon for --suggest-companions when it cannot name --lane patterns; since #1544 the dispatcher is tick-dispatch, whose frontmatter grants no Agent tool. Same shape as U1: a rule that survived the move of the step it governed."
+      },
+      {
+        "id": "U3",
+        "from": "paused",
+        "to": "SendMessage resume",
+        "note": "TICK: paused and RELEASE: paused are resumed by SendMessage to the same agent, never a spawn. Not an edge; the reader should show it on the node."
+      },
+      {
+        "id": "U4",
+        "from": "curate",
+        "to": "PR",
+        "note": "commands/run/curate.md opens a PR from a scheduler-step; its handback shape is declared nowhere read."
+      },
+      {
+        "id": "U5",
+        "subject": "scheduler-step handback",
+        "note": "agents/scheduler-step.md names no report shape of its own; each command file it reads may. Not read for this pass."
+      },
+      {
+        "id": "U6",
+        "from": "release.md",
+        "to": "oss:doctor / oss:changelog",
+        "note": "commands/release.md mentions both; whether it spawns them or only names them was not read for this pass."
+      }
+    ]
+  }
+}

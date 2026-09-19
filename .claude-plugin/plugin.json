@@ -1,0 +1,21 @@
+{
+  "name": "swarm-builder",
+  "description": "Declare a swarm of Claude Code agents once in swarm.json \u2014 who spawns whom, with what, what comes back, who may do what \u2014 then read it as a map and check it on every PR. Structure in JSON, behaviour stays in the agent MDs.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Digital Process Tools"
+  },
+  "license": "Community License",
+  "repository": "https://github.com/Digital-Process-Tools/claude-swarm-builder",
+  "keywords": [
+    "agents",
+    "subagents",
+    "swarm",
+    "orchestration",
+    "lint",
+    "claude-code"
+  ],
+  "dependencies": [
+    "supertool"
+  ]
+}
