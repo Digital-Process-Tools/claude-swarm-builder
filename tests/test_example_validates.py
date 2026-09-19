@@ -1,5 +1,6 @@
 import importlib.util, json, pathlib, subprocess, sys
 import jsonschema
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -324,6 +325,13 @@ def test_r06_finding_when_declared_script_escapes_root_dotdot(tmp_path):
     assert "escapes --root" in results[0].detail
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="a literal backslash is a reserved Windows filename character (illegal in any "
+           "NTFS/FAT filename, not merely path-separator-ambiguous), so this scenario cannot "
+           "be constructed on Windows at all -- untestable there rather than differently "
+           "testable (#25).",
+)
 def test_r06_declared_name_with_backslash_is_one_literal_filename(tmp_path):
     # deliberately NOT treated as a path separator: a real POSIX filename may legitimately
     # contain a literal backslash, and normalizing it to a separator would mangle an exact,
