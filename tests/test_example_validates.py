@@ -5,14 +5,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def test_claude_oss_example_matches_schema():
-    schema = json.loads((ROOT / "schema" / "swarm.schema.json").read_text())
-    swarm = json.loads((ROOT / "examples" / "claude-oss.swarm.json").read_text())
+    schema = json.loads((ROOT / "schema" / "swarm.schema.json").read_text(encoding="utf-8"))
+    swarm = json.loads((ROOT / "examples" / "claude-oss.swarm.json").read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(swarm)
 
 
 def test_own_swarm_matches_schema():
-    schema = json.loads((ROOT / "schema" / "swarm.schema.json").read_text())
-    swarm = json.loads((ROOT / "swarm.json").read_text())
+    schema = json.loads((ROOT / "schema" / "swarm.schema.json").read_text(encoding="utf-8"))
+    swarm = json.loads((ROOT / "swarm.json").read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema).validate(swarm)
 
 

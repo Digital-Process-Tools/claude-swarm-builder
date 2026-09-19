@@ -12,9 +12,10 @@
     "README.md"
   ],
   "labels": {
-    "priority": [],
-    "lanes": [],
-    "filed_by_loop": null
+    "priority": ["priority-high", "priority-medium", "priority-low"],
+    "lanes": ["lane-doctor", "lane-compile", "lane-reader", "lane-schema", "lane-ci", "lane-docs"],
+    "filed_by_loop": "filed-by-loop",
+    "lane_other": "lane-other"
   },
   "milestones": [],
   "release": {
@@ -27,5 +28,6 @@
     }
   },
   "curate_route_threshold": 15,
-  "triage_route_threshold": 0
+  "triage_route_threshold": 0,
+  "test_measurement_configured": true
 }

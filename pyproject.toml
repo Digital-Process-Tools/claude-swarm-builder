@@ -4,3 +4,4 @@ requires-python = ">=3.9"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--durations=25 --cov --cov-report=term-missing"
