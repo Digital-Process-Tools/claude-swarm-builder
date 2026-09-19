@@ -10,10 +10,13 @@ flow whose `to` is this agent). Creates the block at the top of the file, after 
 when the markers are absent. Re-running against unchanged input writes byte-identical files
 (idempotent; use --check to assert that rather than write).
 
-Agents with `md: null`, or whose `md` does not resolve under --root, are skipped and reported
-to stderr; the run still processes every agent it can. `harness_agents` have no `md` and are
-never touched. Exit 1 if any agent's md could not be found or read, or (with --check) if any
-file would change; 0 otherwise.
+An agent with `md: null` has no behaviour file by design (e.g. a pure spawner) and is skipped
+silently; an agent whose `md` does not resolve under --root is a real problem and is reported to
+stderr, with the run still processing every agent it can. `harness_agents` have no `md` and are
+never touched. A swarm with no `agents` at all is reported to stderr too -- schema validation is
+`swarm_doctor.py`'s job (R00), not this script's, but a caller running compile first should not
+read a silent "0 agent(s)" as success. Exit 1 if any agent's md could not be found or read, or
+(with --check) if any file would change; 0 otherwise.
 """
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
@@ -84,7 +87,10 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
     """Returns (changed_paths, error_lines). Writes files unless check is True."""
     changed: list[str] = []
     errors: list[str] = []
-    for name, agent in (swarm.get("agents") or {}).items():
+    agents = swarm.get("agents") or {}
+    if not agents:
+        errors.append("swarm.json has no agents to compile -- run swarm_doctor.py first")
+    for name, agent in agents.items():
         md_rel = agent.get("md")
         if not md_rel:
             continue
@@ -93,7 +99,10 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
             errors.append(f"{name}: md not found at {md_path}")
             continue
         try:
-            text = md_path.read_text(encoding="utf-8")
+            # newline="" on both read and write: no universal-newline translation, so a file's
+            # existing line endings pass through untouched instead of the whole file being
+            # rewritten to the host OS's os.linesep (LF -> CRLF on every line on Windows).
+            text = md_path.read_text(encoding="utf-8", newline="")
         except OSError as e:
             errors.append(f"{name}: could not read {md_path}: {e}")
             continue
@@ -102,7 +111,7 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
         if new_text != text:
             changed.append(str(md_path))
             if not check:
-                md_path.write_text(new_text, encoding="utf-8")
+                md_path.write_text(new_text, encoding="utf-8", newline="")
     return changed, errors
 
 

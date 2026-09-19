@@ -132,3 +132,30 @@ def test_compile_reports_error_on_missing_md(tmp_path):
     r = _run(swarm_path, tmp_path)
     assert r.returncode == 1
     assert "worker" in r.stderr and "missing.md" in r.stderr
+
+
+def test_compile_reports_error_on_no_agents(tmp_path):
+    swarm_path = tmp_path / "swarm.json"
+    swarm_path.write_text(json.dumps({"name": "t", "version": 1, "agents": {}, "flows": {}}), encoding="utf-8")
+
+    r = _run(swarm_path, tmp_path)
+    assert r.returncode == 1
+    assert "no agents" in r.stderr
+
+
+def test_compile_preserves_crlf_line_endings(tmp_path):
+    swarm_path = tmp_path / "swarm.json"
+    swarm_path.write_text(json.dumps(_swarm()), encoding="utf-8")
+    md = tmp_path / "worker.md"
+    # write raw CRLF bytes -- write_text would translate them away before the script even runs
+    md.write_bytes(b"---\r\ndescription: a worker.\r\n---\r\n\r\nHand-written body.\r\n")
+
+    r = _run(swarm_path, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    raw = md.read_bytes()
+    # every original CRLF line, outside the injected block, must still be CRLF -- not rewritten
+    # wholesale to the host platform's line ending
+    assert b"---\r\ndescription: a worker.\r\n---\r\n" in raw
+    assert b"Hand-written body.\r\n" in raw
+    assert b"<!-- swarm:begin -->" in raw
