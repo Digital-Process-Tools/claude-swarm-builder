@@ -88,6 +88,27 @@ def rule_authority_subset(swarm: dict, root: pathlib.Path) -> list[Result]:
     return out
 
 
+def _under_root(root: pathlib.Path, declared: str) -> "pathlib.Path | None":
+    """Resolve `declared` under `root`, refusing anything that escapes it.
+
+    Declared paths in swarm.json are documented as repo-root-relative; an absolute path or a
+    `../` climb must never let this doctor stat, read or hash a file outside --root, since
+    swarm.json itself is untrusted input on an external pull request. Backslashes are treated
+    as path separators too, so a Windows-style declaration resolves the same way on every CI leg
+    instead of being read as one literal filename on POSIX.
+    """
+    normalized = declared.replace("\\", "/")
+    candidate = root / normalized
+    try:
+        resolved = candidate.resolve()
+        resolved_root = root.resolve()
+    except OSError:
+        return None
+    if not resolved.is_relative_to(resolved_root):
+        return None
+    return resolved
+
+
 def rule_md_hash_budget(swarm: dict, root: pathlib.Path) -> list[Result]:
     """R05 md exists, md_hash matches, file size <= budget_bytes."""
     name = "R05 md exists, md_hash matches, file size <= budget_bytes"
@@ -96,7 +117,10 @@ def rule_md_hash_budget(swarm: dict, root: pathlib.Path) -> list[Result]:
         md = agent.get("md")
         if md is None:
             continue
-        path = root / md
+        path = _under_root(root, md)
+        if path is None:
+            out.append(Result(name, "finding", "warning", f"md escapes --root: {md}", agent_name))
+            continue
         if not path.is_file():
             out.append(Result(name, "finding", "warning", f"md not found under --root: {md}", agent_name))
             continue
@@ -124,13 +148,16 @@ def write_missing_hashes(swarm_path: pathlib.Path, root: pathlib.Path) -> int:
         md = agent.get("md")
         if md is None or agent.get("md_hash") is not None:
             continue
-        path = root / md
-        if not path.is_file():
+        path = _under_root(root, md)
+        if path is None or not path.is_file():
             continue
         agent["md_hash"] = hashlib.sha256(path.read_bytes()).hexdigest()
         n += 1
     if n:
-        swarm_path.write_text(json.dumps(swarm, indent=2) + "\n", encoding="utf-8")
+        # newline="" disables universal-newline translation on write, so rewriting the file
+        # to fill in hashes never flips every existing LF to the platform's own os.linesep.
+        with open(swarm_path, "w", encoding="utf-8", newline="") as f:
+            f.write(json.dumps(swarm, indent=2, ensure_ascii=False) + "\n")
     return n
 
 
@@ -139,13 +166,20 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
     name = "R06 every declared script exists; every file under scripts/ is declared by some agent"
     out: list[Result] = []
     declared: set[str] = set()
+    declared_lower: set[str] = set()
     for agent_name, agent in (swarm.get("agents", {}) or {}).items():
         for entry in agent.get("scripts", []) or []:
             script_name = entry.get("name")
             if script_name is None:
                 continue
             declared.add(script_name)
-            if not (root / script_name).is_file():
+            declared_lower.add(script_name.replace("\\", "/").lower())
+            path = _under_root(root, script_name)
+            if path is None:
+                out.append(Result(name, "finding", "warning",
+                                   f"declared script escapes --root: {script_name}", agent_name))
+                continue
+            if not path.is_file():
                 out.append(Result(name, "finding", "warning",
                                    f"declared script not found under --root: {script_name}", agent_name))
     scripts_dir = root / "scripts"
@@ -153,7 +187,10 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
         for p in sorted(scripts_dir.rglob("*")):
             if p.is_file() and p.suffix in (".py", ".sh"):
                 rel = p.relative_to(root).as_posix()
-                if rel not in declared:
+                # a case-insensitive comparison here, matched against the OS-dependent
+                # case-insensitive filesystem lookup `_under_root().is_file()` already used
+                # above -- otherwise the same swarm.json reports differently by OS.
+                if rel.lower() not in declared_lower:
                     out.append(Result(name, "finding", "warning",
                                        f"file under scripts/ is not declared by any agent: {rel}", rel))
     if not out:
@@ -202,10 +239,16 @@ def main(argv: list[str] | None = None) -> int:
     if a.json:
         print(json.dumps([asdict(r) for r in results], indent=2))
     else:
+        def _oneline(s: str) -> str:
+            # a swarm.json's own strings (an authority token, a path, an agent name) are
+            # untrusted on an external pull request; an embedded newline in plain-text mode
+            # would otherwise start a new column-0 line that looks like a second, fabricated
+            # result -- collapse it to keep every result on the one line it printed on.
+            return s.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
         for r in results:
-            detail = f" — {r.detail}" if r.detail else ""
-            ref = f" [{r.ref}]" if r.ref else ""
-            print(f"{r.state:16} {r.level:8} {r.rule}{ref}{detail}")
+            detail = f" — {_oneline(r.detail)}" if r.detail else ""
+            ref = f" [{_oneline(r.ref)}]" if r.ref else ""
+            print(f"{r.state:16} {r.level:8} {_oneline(r.rule)}{ref}{detail}")
         n_f = sum(1 for r in results if r.state == "finding")
         n_c = sum(1 for r in results if r.state == "could-not-check")
         print(f"\n{len(results)} results: {n_f} finding(s), {n_c} could-not-check")
