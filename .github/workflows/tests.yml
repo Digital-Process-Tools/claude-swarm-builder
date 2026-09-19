@@ -20,4 +20,4 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests/ -q
-      - run: python scripts/swarm_doctor.py examples/claude-oss.swarm.json --root .
+      - run: python scripts/swarm_doctor.py examples/clean.swarm.json --root .
