@@ -3,5 +3,4 @@ __pycache__/
 .pytest_cache/
 *.html
 !reader/reader.html
-.oss.json
 .oss-state.json

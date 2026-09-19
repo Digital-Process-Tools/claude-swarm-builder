@@ -1,0 +1,31 @@
+{
+  "repo": "Digital-Process-Tools/claude-swarm-builder",
+  "default_branch": "main",
+  "branch_pattern": "fix/{issue}",
+  "test_command": "pytest",
+  "version_sites": [
+    ".claude-plugin/plugin.json"
+  ],
+  "changelog_dir": "changelog.d",
+  "changelog_untagged": null,
+  "docs_targets": [
+    "README.md"
+  ],
+  "labels": {
+    "priority": [],
+    "lanes": [],
+    "filed_by_loop": null
+  },
+  "milestones": [],
+  "release": {
+    "tag_pattern": null,
+    "merge_method": null,
+    "commit_subject": null,
+    "triggers": {
+      "merged_prs": 10,
+      "soak_hours": 48
+    }
+  },
+  "curate_route_threshold": 15,
+  "triage_route_threshold": 0
+}
