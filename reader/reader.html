@@ -45,18 +45,35 @@ svg{display:block}
 .node.human rect{stroke-dasharray:3 3}
 .node.leaf rect{fill:var(--ground)}
 .node.leaf .n{font-weight:500}
+.node.err rect{stroke:var(--danger);stroke-width:2}
+.node.warn rect{stroke:var(--accent);stroke-width:2}
+.node.info rect{stroke:var(--ok);stroke-width:2}
+.node.cnc rect{stroke:var(--muted);stroke-width:2;stroke-dasharray:3 3}
 .edge{fill:none;stroke:var(--edge);stroke-width:1.2;cursor:pointer}
 .edge.hit{stroke:transparent;stroke-width:14}
 .edge.sel{stroke:var(--accent);stroke-width:2.5}
 .edge.unrouted{stroke:var(--danger);stroke-dasharray:5 4}
 .edge.msg{stroke:var(--accent);stroke-dasharray:2 3}
 .edge.dim{opacity:.25}
+.edge.err{stroke:var(--danger)}
+.edge.warn{stroke:var(--accent)}
+.edge.info{stroke:var(--ok)}
+.edge.cnc{stroke:var(--muted);stroke-dasharray:3 3}
 marker path{fill:var(--edge)}
 marker.acc path{fill:var(--accent)}
 marker.dan path{fill:var(--danger)}
-.legend{position:sticky;left:0;bottom:0;display:flex;gap:16px;padding:6px 14px;font-size:12px;color:var(--muted);background:var(--panel);border-top:1px solid var(--line)}
+.legend{position:sticky;left:0;bottom:0;display:flex;gap:16px;padding:6px 14px;font-size:12px;color:var(--muted);background:var(--panel);border-top:1px solid var(--line);flex-wrap:wrap}
 .legend span:not(:last-child)::before{content:"";display:inline-block;width:22px;height:0;border-top:2px solid var(--edge);margin-right:6px;vertical-align:middle}
 .legend .un::before{border-top:2px dashed var(--danger)}
+.legend .err::before{border-top:2px solid var(--danger)}
+.legend .warn::before{border-top:2px solid var(--accent)}
+.legend .info::before{border-top:2px solid var(--ok)}
+.legend .cnc::before{border-top:2px dashed var(--muted)}
+.findings{list-style:none;margin:0;padding:0}
+.findings li{padding:4px 0;border-bottom:1px solid var(--line)}
+.findings li.err{color:var(--danger)}
+.findings li.warn{color:var(--accent)}
+.findings li.cnc{color:var(--muted)}
 .legend .ms::before{border-top:2px dotted var(--accent)}
 .legend .st::before{border-top:2px solid var(--accent)}
 #inspector{overflow:auto;padding:18px 22px;background:var(--panel)}
@@ -119,14 +136,62 @@ a{color:var(--accent)}
 </main>
 
 <script type="application/json" id="tree">__SWARM_JSON__</script>
+<script type="application/json" id="findings">__FINDINGS_JSON__</script>
 <script>
-let T, agents, flows;
+let T, agents, flows, F = [];
 let flowName = 'run', selEdge = null, selNode = null, step = -1, timer = null;
 function setData(data){
   T = data;
   agents = Object.assign({}, T.agents);
   for (const [k,v] of Object.entries(T.harness_agents||{})) agents[k] = Object.assign({harness:true, md:null, model:'harness', tools:[], authority:v.authority||[], budget_bytes:null, context:[], scripts:[]}, v);
   flows = T.flows;
+}
+// Doctor findings overlay (issue #28): F is the full swarm_doctor.py --json array -- every
+// rule's outcome, ok included, never just the ones that fired -- so a rule that never ran
+// and a rule that came back clean are still tellable apart from a rule with no representation
+// in the legend at all. "Active" below means "worth drawing", i.e. not a plain ok.
+function activeFindings(){ return F.filter(r=>r.state!=='ok'); }
+function findingsForNode(n){ return activeFindings().filter(r=>r.agent===n); }
+function findingsForEdgeId(id){
+  if(!id) return [];  // an id-less edge must not act as a wildcard for every unattached finding
+  return activeFindings().filter(r=>String(r.edge||'').split(',').includes(id));
+}
+function findingLevelClass(records){
+  // worst-first: an error-level finding always outranks a warning or a could-not-check,
+  // so a node/edge touched by more than one rule is coloured by its most serious one.
+  if(records.some(r=>r.state==='finding'&&r.level==='error')) return 'err';
+  if(records.some(r=>r.state==='finding'&&r.level==='warning')) return 'warn';
+  if(records.some(r=>r.state==='could-not-check')) return 'cnc';
+  if(records.some(r=>r.state==='finding'&&r.level==='info')) return 'info';
+  return '';
+}
+function findingsBlock(records){
+  if(!records.length) return '';
+  return `<h3>Doctor findings</h3><ul class="findings">${records.map(r=>{
+    const cls = r.state==='could-not-check' ? 'cnc' : (r.level==='error'?'err':r.level==='warning'?'warn':'info');
+    const label = r.state==='could-not-check' ? 'could not check' : r.state;
+    return `<li class="${cls}"><b>${esc(r.rule.split(' ')[0])}</b> <span class="v">${esc(label)}</span>${r.detail?': '+esc(r.detail):''}</li>`;
+  }).join('')}</ul>`;
+}
+function findingLegend(){
+  // one legend entry per rule that is not plain ok -- a could-not-check rule is listed as
+  // such, same three-state rule the doctor itself follows, never silently absent (#28).
+  const worst = new Map();
+  const rank = {error:3, warning:2, info:1};
+  for(const r of activeFindings()){
+    const cur = worst.get(r.rule);
+    if(!cur){ worst.set(r.rule, r); continue; }
+    const curScore = cur.state==='could-not-check' ? 0 : (rank[cur.level]||0);
+    const newScore = r.state==='could-not-check' ? 0 : (rank[r.level]||0);
+    if(r.state==='finding' && (cur.state!=='finding' || newScore>curScore)) worst.set(r.rule, r);
+  }
+  return [...worst.values()].map(r=>{
+    const cls = r.state==='could-not-check' ? 'cnc' : (r.level==='error'?'err':r.level==='warning'?'warn':'info');
+    const label = r.rule.split(' ')[0];
+    const stateWord = r.state==='could-not-check' ? 'could not check' : r.state;
+    const title = `${r.rule} — ${stateWord}${r.detail?': '+r.detail:''}`;
+    return `<span class="${cls}" title="${esc(title)}">${esc(label)}</span>`;
+  }).join('');
 }
 
 function flowEdges(name){ const f=flows[name]; return (f.edges||[]).filter(e=>typeof e==='object'); }
@@ -196,7 +261,8 @@ function draw(){
     const key=e.from+'>'+e.to; const k=(pairCount[key]=(pairCount[key]||0)+1)-1;
     const d=path(a,b,k);
     const isMsg = /SendMessage/.test(e.when||'');
-    const cls = 'edge'+(e.unrouted?' unrouted':'')+(isMsg?' msg':'')+(selEdge===i&&i>=0?' sel':'')+(selEdge!==null&&selEdge!==i&&i>=0?' dim':'');
+    const eLvl = findingLevelClass(findingsForEdgeId(e.id||''));
+    const cls = 'edge'+(e.unrouted?' unrouted':'')+(isMsg?' msg':'')+(eLvl?' '+eLvl:'')+(selEdge===i&&i>=0?' sel':'')+(selEdge!==null&&selEdge!==i&&i>=0?' dim':'');
     const p=document.createElementNS(svgNS,'path'); p.setAttribute('d',d); p.setAttribute('class',cls);
     p.setAttribute('marker-end', e.unrouted?'url(#md)':(selEdge===i?'url(#ma)':'url(#m)'));
     const hit=document.createElementNS(svgNS,'path'); hit.setAttribute('d',d); hit.setAttribute('class','edge hit');
@@ -205,8 +271,9 @@ function draw(){
   }
   for(const [n,p] of Object.entries(L.pos)){
     const a=agents[n];
+    const nLvl = findingLevelClass(findingsForNode(n));
     const g=document.createElementNS(svgNS,'g');
-    g.setAttribute('class','node'+(n===L.root?' root':'')+(a.harness?' human':'')+(p.leaf?' leaf':'')+(selNode===n?' sel':''));
+    g.setAttribute('class','node'+(n===L.root?' root':'')+(a.harness?' human':'')+(p.leaf?' leaf':'')+(nLvl?' '+nLvl:'')+(selNode===n?' sel':''));
     g.setAttribute('transform',`translate(${p.x},${p.y})`);
     const budget = a.budget_bytes? (a.budget_bytes/1000).toFixed(1)+' kB' : (a.harness?'harness':'—');
     g.innerHTML=`<rect width="${p.w}" height="${p.h}"/><text class="n" x="12" y="22">${esc(n)}</text><text class="m" x="12" y="42">${esc(a.model)} · ${esc(budget)}</text>`;
@@ -216,7 +283,7 @@ function draw(){
   const c=document.getElementById('canvas'); c.innerHTML='';
   c.appendChild(svg);
   const lg=document.createElement('div'); lg.className='legend';
-  lg.innerHTML='<span>spawn</span><span class="st">current step</span><span style="margin-left:auto">column = spawn depth · indented, lighter = leaf (spawns nothing)</span><span class="ms">SendMessage resume</span><span class="un">declared, not routed</span>';
+  lg.innerHTML='<span>spawn</span><span class="st">current step</span><span style="margin-left:auto">column = spawn depth · indented, lighter = leaf (spawns nothing)</span><span class="ms">SendMessage resume</span><span class="un">declared, not routed</span>'+findingLegend();
   c.appendChild(lg);
 }
 
@@ -230,7 +297,7 @@ function copyText(v){
   return ok;
 }
 function wireCopy(){ document.querySelectorAll('[data-copy]').forEach(b=>{ if(b.dataset.wired) return; b.dataset.wired='1'; b.addEventListener('click',ev=>{ev.stopPropagation(); ev.preventDefault(); copyText(b.dataset.copy); b.classList.add('done'); setTimeout(()=>b.classList.remove('done'),900);}); }); }
-function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function selectNode(n){
   selNode=n; selEdge=null; step=-1; stopPlay(); draw();
@@ -269,6 +336,7 @@ function selectNode(n){
     ${outs.length? '<ul>'+outs.map(x=>`<li>${idTag(x.e.id)} <a href="#" data-e="${x.i}">→ ${esc(x.e.to)}</a> <span class="v">${esc(x.e.when||'')}</span></li>`).join('')+'</ul>':'<span class="v">leaf — spawns nothing</span>'}
     <h3>Spawned by (${ins.length})</h3>
     ${ins.length? '<ul>'+ins.map(x=>`<li>${idTag(x.e.id)} <a href="#" data-e="${x.i}">${esc(x.e.from)} →</a> <span class="v">${esc(x.e.when||'')}</span></li>`).join('')+'</ul>':'<span class="v">root — nothing spawns it</span>'}
+    ${findingsBlock(findingsForNode(n))}
   `;
   wireLinks();
 }
@@ -289,6 +357,7 @@ function edgeCard(e, i, total){
     <h3>Handback — what comes back</h3>${chips(e.handback,'state')}
     ${e.terminal?'<p class="note">Terminal: these states route nowhere further by design.</p>':''}
     ${e._note?`<p class="note ${e.unrouted?'warn':''}">${esc(e._note)}</p>`:''}
+    ${findingsBlock(findingsForEdgeId(e.id||''))}
   `;
 }
 
@@ -348,6 +417,10 @@ function init(data){
 // A sibling swarm.json (published, or served locally next to this page) is the thing you
 // edit; the embedded payload below is only the fallback for file:// or a missing sibling.
 const embedded = JSON.parse(document.getElementById('tree').textContent);
+// The findings overlay has no sibling-fetch counterpart -- it is always the embedded array
+// from the build (or [] when swarm_reader.py was run with no --findings), because there is
+// no "findings.json" convention to fetch the way there is for swarm.json.
+try { F = JSON.parse(document.getElementById('findings').textContent) || []; } catch(e) { F = []; }
 fetch('swarm.json')
   .then(r => r.ok ? r.json() : Promise.reject(new Error('http '+r.status)))
   .then(init)

@@ -205,6 +205,8 @@ No roles in the schema — `lane`, `auditor`, `manager` are presets copied from 
 
 `examples/claude-oss.swarm.json` — 15 agents, 21 edges, and the six things declaring it exposed under `declared_but_unrouted`. `python3 scripts/swarm_reader.py examples/claude-oss.swarm.json` renders it. The built page always tries `fetch('swarm.json')` first, so it only picks up a sibling when one is served under exactly that literal name — this worked example is built from `claude-oss.swarm.json`, so opening its rendered page exercises the embedded-payload fallback, not the live fetch, unless you also save the JSON alongside it as `swarm.json`. Either way the JSON stays the thing you edit.
 
+Pass `python3 scripts/swarm_doctor.py examples/claude-oss.swarm.json --json` to `swarm_reader.py --findings` and every rule's outcome — not just `declared_but_unrouted` — is drawn on the same page: coloured nodes and edges by level, a legend entry per rule that fired, `could-not-check` rules named as such rather than silently missing, and the finding text on click. `commands/read.md` (`/oss:read`) already wires this in.
+
 ## Prior art
 
 Three canvases (claude-studio, ccbuilder, AgenTopology) and one description format (Swarm Skills) exist. None declares edges as data for MD-defined agents, checks authority on an edge, joins measured cost to a design, or round-trips hand-written prose. AgenTopology was tried on claude-oss: its import dropped every MD body and fabricated an alphabetical flow that then "passed all validation rules". `docs/prior-art.md`.
