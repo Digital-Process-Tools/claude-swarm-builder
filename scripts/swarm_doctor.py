@@ -29,7 +29,18 @@ class Result:
     state: str          # ok | finding | could-not-check
     level: str          # error | warning | info
     detail: str = ""
-    ref: str = ""       # edge id, agent name, path
+    ref: str = ""       # edge id, agent name, path, or flow name -- freeform, for a human reader
+    edge: str = ""       # explicit edge id (or comma-joined ids for R07), set only when unambiguous
+    agent: str = ""      # explicit agent name, set only when unambiguous
+    # `edge` and `agent` are set at the call site below, by each rule that actually knows which
+    # one it has -- never inferred from `ref` after the fact. A prior version tried to classify
+    # `ref` post-hoc by checking it against the known agent-name and edge-id sets; that heuristic
+    # was unsound, because neither namespace is actually disjoint from the other (an edge's `id`
+    # follows a schema pattern, but an agent name is an unconstrained object key, so an agent can
+    # legally be named exactly like an edge id -- and R08's `ref` is a third, flow-name namespace
+    # that can collide with an agent name too, e.g. a flow and an agent both named "doctor").
+    # Two independent reviews found real misclassifications from that heuristic (#28 self-review);
+    # setting both fields explicitly, per rule, removes the ambiguity instead of narrowing it.
 
 
 def rule_schema(swarm: dict, root: pathlib.Path) -> list[Result]:
@@ -80,9 +91,10 @@ def rule_authority_subset(swarm: dict, root: pathlib.Path) -> list[Result]:
                 continue  # R01's job to flag an undeclared agent
             extra = sorted(_authority_tokens(to_agent) - _authority_tokens(from_agent))
             if extra:
+                eid = edge.get("id", f"{from_name}->{to_name}")
                 out.append(Result(name, "finding", "error",
                                    f"{to_name} has authority not in {from_name}'s: {', '.join(extra)}",
-                                   edge.get("id", f"{from_name}->{to_name}")))
+                                   eid, edge=eid))
     if not out:
         out.append(Result(name, "ok", "error"))
     return out
@@ -121,14 +133,14 @@ def rule_md_hash_budget(swarm: dict, root: pathlib.Path) -> list[Result]:
             continue
         status, result = _under_root(root, md)
         if status == "escapes":
-            out.append(Result(name, "finding", "warning", f"md escapes --root: {md}", agent_name))
+            out.append(Result(name, "finding", "warning", f"md escapes --root: {md}", agent_name, agent=agent_name))
             continue
         if status == "error":
-            out.append(Result(name, "finding", "warning", f"md could not be resolved: {md} ({result})", agent_name))
+            out.append(Result(name, "finding", "warning", f"md could not be resolved: {md} ({result})", agent_name, agent=agent_name))
             continue
         path = result
         if not path.is_file():
-            out.append(Result(name, "finding", "warning", f"md not found under --root: {md}", agent_name))
+            out.append(Result(name, "finding", "warning", f"md not found under --root: {md}", agent_name, agent=agent_name))
             continue
         data = path.read_bytes()
         declared_hash = agent.get("md_hash")
@@ -136,11 +148,12 @@ def rule_md_hash_budget(swarm: dict, root: pathlib.Path) -> list[Result]:
             actual_hash = hashlib.sha256(data).hexdigest()
             if declared_hash != actual_hash:
                 out.append(Result(name, "finding", "warning",
-                                   f"md_hash mismatch: declared {declared_hash}, actual {actual_hash}", agent_name))
+                                   f"md_hash mismatch: declared {declared_hash}, actual {actual_hash}", agent_name,
+                                   agent=agent_name))
         budget = agent.get("budget_bytes")
         if budget is not None and len(data) > budget:
             out.append(Result(name, "finding", "warning",
-                               f"{md} is {len(data)} bytes, over budget_bytes {budget}", agent_name))
+                               f"{md} is {len(data)} bytes, over budget_bytes {budget}", agent_name, agent=agent_name))
     if not out:
         out.append(Result(name, "ok", "warning"))
     return out
@@ -181,15 +194,17 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
             status, result = _under_root(root, script_name)
             if status == "escapes":
                 out.append(Result(name, "finding", "warning",
-                                   f"declared script escapes --root: {script_name}", agent_name))
+                                   f"declared script escapes --root: {script_name}", agent_name, agent=agent_name))
                 continue
             if status == "error":
                 out.append(Result(name, "finding", "warning",
-                                   f"declared script could not be resolved: {script_name} ({result})", agent_name))
+                                   f"declared script could not be resolved: {script_name} ({result})", agent_name,
+                                   agent=agent_name))
                 continue
             if not result.is_file():
                 out.append(Result(name, "finding", "warning",
-                                   f"declared script not found under --root: {script_name}", agent_name))
+                                   f"declared script not found under --root: {script_name}", agent_name,
+                                   agent=agent_name))
     scripts_dir = root / "scripts"
     if scripts_dir.is_dir():
         for p in sorted(scripts_dir.rglob("*")):
@@ -261,7 +276,7 @@ def rule_r01(swarm: dict, root: pathlib.Path) -> list[Result]:
             name = e.get(key)
             if name is not None and name not in known:
                 results.append(Result(rule, "finding", "error",
-                                       f"{key}={name!r} is not a declared agent or harness_agent", eid))
+                                       f"{key}={name!r} is not a declared agent or harness_agent", eid, edge=eid))
     if not results:
         return [Result(rule, "ok", "error")]
     return results
@@ -299,7 +314,8 @@ def rule_r02(swarm: dict, root: pathlib.Path) -> list[Result]:
     missing = sorted(agents - reachable)
     if not missing:
         return [Result(rule, "ok", "error")]
-    return [Result(rule, "finding", "error", "agent is not reachable from any flow root", name) for name in missing]
+    return [Result(rule, "finding", "error", "agent is not reachable from any flow root", name, agent=name)
+            for name in missing]
 
 
 def rule_r03(swarm: dict, root: pathlib.Path) -> list[Result]:
@@ -321,11 +337,12 @@ def rule_r03(swarm: dict, root: pathlib.Path) -> list[Result]:
             needle = f"{to}.handback == {state}"
             routed = any(needle in (other.get("when") or "") for other in edges if other is not e)
             if not routed:
+                eid = e.get("id", "")
                 results.append(Result(
                     rule, "finding", "error",
                     f"handback state {state!r} on edge to {to!r} is referenced by no other edge's when, "
                     f"and the edge is not terminal",
-                    e.get("id", ""),
+                    eid, edge=eid,
                 ))
     if not results:
         return [Result(rule, "ok", "error")]
@@ -399,9 +416,10 @@ def rule_two_paths_one_job(swarm: dict, root: pathlib.Path) -> list[Result]:
                         reason = "identical handback lists"
                 if reason:
                     seen_pairs.add(pair_key)
+                    eids = f"{a_id},{b_id}"
                     out.append(Result(name, "finding", "warning",
                                        f"{a_id} and {b_id} both feed {to_name} from different parents ({reason})",
-                                       f"{a_id},{b_id}"))
+                                       eids, edge=eids))
     if not out:
         out.append(Result(name, "ok", "warning"))
     return out
@@ -540,7 +558,7 @@ def rule_spawn_prose_has_edge(swarm: dict, root: pathlib.Path) -> list[Result]:
                 # the same "nothing spawned here" result as a file that was simply empty --
                 # this doctor's whole contract is that a rule that could not look says so.
                 out.append(Result(name, "could-not-check", "error",
-                                   f"{declared} could not be read: {e}", agent_name))
+                                   f"{declared} could not be read: {e}", agent_name, agent=agent_name))
                 continue
             spawned |= set(_SPAWN_RE.findall(text))
         # a subagent_type string may carry a plugin prefix (e.g. "oss:triager") that the
@@ -555,7 +573,7 @@ def rule_spawn_prose_has_edge(swarm: dict, root: pathlib.Path) -> list[Result]:
                 continue
             out.append(Result(name, "finding", "error",
                                f"{agent_name}'s prose spawns {spawned_name!r} with no edge {agent_name} -> {spawned_name}",
-                               agent_name))
+                               agent_name, agent=agent_name))
     if not out:
         out.append(Result(name, "ok", "error"))
     return out
@@ -573,44 +591,6 @@ RULES = [
     rule_spawn_depth,
     rule_spawn_prose_has_edge,
 ]
-
-
-def _known_agent_names(swarm: dict) -> set[str]:
-    names = set((swarm.get("agents") or {}).keys())
-    names |= set((swarm.get("harness_agents") or {}).keys())
-    return names
-
-
-def _known_edge_ids(swarm: dict) -> set[str]:
-    ids: set[str] = set()
-    for _fname, e in _structured_edges(swarm):
-        eid = e.get("id")
-        if eid:
-            ids.add(eid)
-    return ids
-
-
-def _classify_ref(ref: str, agent_names: set[str], edge_ids: set[str]) -> tuple[str, str]:
-    """Split a Result's overloaded `ref` into explicit (edge, agent) ids for --json.
-
-    `ref` is populated differently per rule -- a single edge id (R01, R03, R04), an agent
-    name (R02, R05, R09), a comma-joined pair of edge ids (R07), or something that is
-    neither (a flow name for R08, a bare script path for R06 when it names no agent). This
-    never rewrites `ref` itself, only classifies it: `ref` alone still carries the raw
-    value for a human reader or an older consumer of this field. Anything that resolves to
-    neither a known edge id nor a known agent name reports both as empty rather than
-    guessing -- an edge id and an agent name can never collide in the same swarm.json (R01
-    already requires every edge endpoint to be a declared agent), so this classification is
-    exact, not a best-effort heuristic, for every ref this doctor actually produces today.
-    """
-    if not ref:
-        return "", ""
-    parts = ref.split(",")
-    if parts and all(p in edge_ids for p in parts):
-        return ref, ""
-    if ref in agent_names:
-        return "", ref
-    return "", ""
 
 
 def run(swarm_path: pathlib.Path, root: pathlib.Path) -> list[Result]:
@@ -638,22 +618,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {n} md_hash value(s)")
     results = run(a.swarm, a.root)
     if a.json:
-        try:
-            swarm_for_ids = json.loads(a.swarm.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            # run() already turned this into its own could-not-check Result above; here it
-            # just means no ref can be classified, so every record's edge/agent stay empty.
-            swarm_for_ids = {}
-        agent_names = _known_agent_names(swarm_for_ids)
-        edge_ids = _known_edge_ids(swarm_for_ids)
-        records = []
-        for r in results:
-            edge, agent = _classify_ref(r.ref, agent_names, edge_ids)
-            record = asdict(r)
-            record["edge"] = edge
-            record["agent"] = agent
-            records.append(record)
-        print(json.dumps(records, indent=2))
+        # edge/agent are real Result fields, set explicitly by whichever rule produced each
+        # record -- see the Result dataclass for why this is no longer inferred from `ref`.
+        print(json.dumps([asdict(r) for r in results], indent=2))
     else:
         def _oneline(s: str) -> str:
             # a swarm.json's own strings (an authority token, a path, an agent name) are

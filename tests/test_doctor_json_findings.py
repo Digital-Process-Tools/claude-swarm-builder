@@ -20,6 +20,9 @@ def test_json_records_carry_explicit_edge_and_agent_fields():
         assert "edge" in r and "agent" in r, r
         # never both at once -- a record is about one edge id, or one agent name, or neither
         assert not (r["edge"] and r["agent"]), r
+    # positive control: this fixture's R05 findings do carry an agent id, so a stub that always
+    # returned "", "" for edge/agent (still satisfying every assertion above) would be caught here.
+    assert any(r["agent"] for r in results), "expected at least one record to carry a real agent id"
 
 
 def test_r04_findings_carry_an_edge_id():

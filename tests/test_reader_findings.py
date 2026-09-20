@@ -1,4 +1,4 @@
-import json, pathlib, subprocess, sys
+import json, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -57,12 +57,19 @@ def test_reader_refuses_invalid_findings_json(tmp_path):
 def test_reader_html_has_finding_rendering_hooks():
     # No JS test harness exists in this repo (see test_reader_embed.py) -- these are the
     # same string/regex checks that file already uses for the fetch-then-fallback shape.
+    # These pin the actual filter/return logic, not just the function names, so a stub that
+    # emptied out findingLegend()/findingsForNode()/findingsForEdgeId() (e.g. `return []` /
+    # `return ''` unconditionally, keeping every name and string above in the source) would
+    # still fail here.
     src = (ROOT / "reader" / "reader.html").read_text(encoding="utf-8")
     assert 'id="findings"' in src
     assert "could-not-check" in src  # a rule that never fired must render as such, not vanish
-    assert "findingLegend" in src
-    assert "findingsForNode" in src
-    assert "findingsForEdgeId" in src
+    assert re.search(r"function findingLegend\(\)\{", src)
+    assert re.search(r"function findingsForNode\(n\)\{\s*return activeFindings\(\)\.filter\(r=>r\.agent===n\)", src)
+    assert re.search(r"function findingsForEdgeId\(id\)\{", src)
+    assert "if(!id) return [];" in src  # an id-less edge must not wildcard-match every finding
+    assert ".split(',').includes(id)" in src
+    assert "worst.set(r.rule, r)" in src  # findingLegend actually groups by rule, not a stub
 
 
 def test_commands_read_runs_doctor_and_wires_findings():

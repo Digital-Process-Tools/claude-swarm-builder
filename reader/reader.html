@@ -152,7 +152,10 @@ function setData(data){
 // in the legend at all. "Active" below means "worth drawing", i.e. not a plain ok.
 function activeFindings(){ return F.filter(r=>r.state!=='ok'); }
 function findingsForNode(n){ return activeFindings().filter(r=>r.agent===n); }
-function findingsForEdgeId(id){ return activeFindings().filter(r=>String(r.edge||'').split(',').includes(id)); }
+function findingsForEdgeId(id){
+  if(!id) return [];  // an id-less edge must not act as a wildcard for every unattached finding
+  return activeFindings().filter(r=>String(r.edge||'').split(',').includes(id));
+}
 function findingLevelClass(records){
   // worst-first: an error-level finding always outranks a warning or a could-not-check,
   // so a node/edge touched by more than one rule is coloured by its most serious one.
@@ -294,7 +297,7 @@ function copyText(v){
   return ok;
 }
 function wireCopy(){ document.querySelectorAll('[data-copy]').forEach(b=>{ if(b.dataset.wired) return; b.dataset.wired='1'; b.addEventListener('click',ev=>{ev.stopPropagation(); ev.preventDefault(); copyText(b.dataset.copy); b.classList.add('done'); setTimeout(()=>b.classList.remove('done'),900);}); }); }
-function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function selectNode(n){
   selNode=n; selEdge=null; step=-1; stopPlay(); draw();
