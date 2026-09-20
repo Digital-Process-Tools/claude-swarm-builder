@@ -20,9 +20,12 @@ in the MD).
    edges, contracts, authority narrowing downward. Structure only, nothing about behaviour.
    Name agents from the user's own vocabulary; the schema has no roles and neither does this
    interview. Never start from `examples/claude-oss.swarm.json` or any other preset --
-   `examples/` are examples, read for shape, never copied as a template. Leave `cost_tokens`
-   (measured only, never guessed) and any other field the interview did not settle absent,
-   and say so rather than filling it in.
+   `examples/` are examples, read for shape, never copied as a template. `cost_tokens` is
+   measured, never guessed -- leave it absent and say so; it is the one catalogue field the
+   schema does not require. Every other field the schema requires (`summary`, `model`,
+   `tools`, `authority`, `lifetime`, `inherits`, `budget_bytes`, `context`, `scripts`) has to
+   be settled by the interview before the proposal validates -- keep asking rather than
+   filling one in with a plausible-looking guess.
 
 4. **Picture.** Run `/swarm-builder:read` to render `swarm.json` and publish it. Ask: "does
    this look like what you need?" Doctor findings drawn on the map (#28) are how a broken
