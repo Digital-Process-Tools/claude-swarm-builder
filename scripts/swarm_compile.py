@@ -34,6 +34,12 @@ BEGIN = "<!-- swarm:begin -->"
 END = "<!-- swarm:end -->"
 FRONTMATTER_RE = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
 
+# YAML 1.1 core-schema words a bare scalar resolves to bool/null under, and the pattern for a
+# bare scalar a loader resolves to a number -- both are used only by `_yaml_scalar()`, to force
+# quoting when a JSON string value would otherwise silently change type on read-back.
+_YAML_RESERVED_WORDS = {"true", "false", "yes", "no", "on", "off", "null", "~", "y", "n"}
+_YAML_NUMBER_RE = re.compile(r"\A[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\Z")
+
 
 def _eol(text: str) -> str:
     """The line ending already in use in `text` -- CRLF if any CRLF appears, else LF.
@@ -123,10 +129,21 @@ def _first_line(text: str) -> str:
 
 def _yaml_scalar(value: str) -> str:
     """A YAML frontmatter scalar for `value` -- JSON-quoted (valid YAML flow scalar syntax)
-    whenever a bare word would change meaning (`:`, `#`, quotes) or would not round-trip as
-    the plain string it is (leading/trailing space, empty)."""
-    special = (":", "#", '"', "'")
-    if value == "" or value != value.strip() or any(c in value for c in special):
+    whenever a bare word would change meaning or would not round-trip as the plain string it
+    is: leading/trailing space, empty, a `:`/`#`/quote, a bare YAML 1.1 boolean/null keyword
+    (`yes`/`no`/`true`/`false`/`on`/`off`/`null`/`~`/`y`/`n`, any case -- a JSON string here is
+    meant to stay a string, not become a loader's bool/None), a bare number (same reasoning),
+    or any embedded newline -- a value spanning multiple lines could otherwise carry its own
+    `---` and forge a second frontmatter delimiter, moving a later field (e.g. `tools:`) out of
+    the block and into the document body."""
+    special = (":", "#", '"', "'", "\n")
+    if (
+        value == ""
+        or value != value.strip()
+        or any(c in value for c in special)
+        or value.lower() in _YAML_RESERVED_WORDS
+        or _YAML_NUMBER_RE.match(value)
+    ):
         return json.dumps(value)
     return value
 
@@ -198,12 +215,20 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
         md_path = root / md_rel
         incoming = incoming_edges(swarm, name)
         if not md_path.is_file():
-            created.append(str(md_path))
             if not check:
-                md_path.parent.mkdir(parents=True, exist_ok=True)
-                skeleton = build_skeleton(name, agent, incoming)
-                with open(md_path, "w", encoding="utf-8", newline="") as f:
-                    f.write(skeleton)
+                # No mkdir(parents=True): an md path whose parent directory does not exist is
+                # far more likely to be a typo in swarm.json than a deliberately new directory,
+                # and silently fabricating a directory tree would make that typo indistinguishable
+                # from the intended "no MD yet" case. Report it the same way an unreadable
+                # existing file is reported instead, and process every other agent regardless.
+                try:
+                    skeleton = build_skeleton(name, agent, incoming)
+                    with open(md_path, "w", encoding="utf-8", newline="") as f:
+                        f.write(skeleton)
+                except OSError as e:
+                    errors.append(f"{name}: could not create {md_path}: {e}")
+                    continue
+            created.append(str(md_path))
             continue
         try:
             # newline="": no universal-newline translation, so a file's existing line endings

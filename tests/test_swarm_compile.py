@@ -203,6 +203,59 @@ def test_compile_check_reports_missing_md_without_creating(tmp_path):
     assert not (tmp_path / "missing.md").exists()
 
 
+def test_compile_skeleton_quotes_yaml_reserved_words(tmp_path):
+    # "yes"/"no"/"true"/etc. are YAML 1.1 booleans when written bare -- a JSON string value
+    # equal to one of these words must stay a string on read-back, not silently become a bool.
+    swarm = _swarm()
+    swarm["agents"]["worker"]["md"] = "missing.md"
+    swarm["agents"]["worker"]["tools"] = ["yes", "Bash"]
+    swarm_path = tmp_path / "swarm.json"
+    _write(swarm_path, json.dumps(swarm))
+
+    r = _run(swarm_path, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = (tmp_path / "missing.md").read_text(encoding="utf-8")
+    assert '- "yes"' in out
+    assert "  - Bash" in out
+
+
+def test_compile_skeleton_quotes_embedded_frontmatter_delimiter(tmp_path):
+    # A value carrying its own newline-plus-"---" must not be able to forge a second
+    # frontmatter delimiter and move a later field (tools:) out of the block into the body.
+    swarm = _swarm()
+    swarm["agents"]["worker"]["md"] = "missing.md"
+    swarm["agents"]["worker"]["model"] = "sonnet\n---\ninjected"
+    swarm_path = tmp_path / "swarm.json"
+    _write(swarm_path, json.dumps(swarm))
+
+    r = _run(swarm_path, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = (tmp_path / "missing.md").read_text(encoding="utf-8")
+    # a quoted scalar's own escape sequences (json.dumps writes the embedded newline as the
+    # two literal characters backslash-n) must never be mistaken for a real newline -- so the
+    # frontmatter's real closing "---" is still the FIRST real "\n---\n" after the opening one,
+    # "tools:" (declared after "model:" in skeleton_frontmatter) is still above it, inside the
+    # block rather than pushed into the document body past a forged delimiter, and the whole
+    # value survives on one frontmatter line with its newlines escaped rather than real
+    close_at = out.index("\n---\n", len("---\n"))
+    assert out.index("tools:") < close_at
+    assert 'model: "sonnet\\n---\\ninjected"' in out
+
+
+def test_compile_missing_md_parent_dir_absent_reports_error_without_creating_it(tmp_path):
+    # A missing intermediate directory is far more likely a typo in swarm.json than a
+    # deliberate new directory -- report it, do not fabricate the directory tree.
+    swarm = _swarm()
+    swarm["agents"]["worker"]["md"] = "nested/worker.md"
+    swarm_path = tmp_path / "swarm.json"
+    _write(swarm_path, json.dumps(swarm))
+
+    r = _run(swarm_path, tmp_path)
+    assert r.returncode == 1
+    assert "worker" in r.stderr
+    assert not (tmp_path / "nested").exists()
+
+
 def test_compile_reports_error_on_no_agents(tmp_path):
     swarm_path = tmp_path / "swarm.json"
     _write(swarm_path, json.dumps({"name": "t", "version": 1, "agents": {}, "flows": {}}))
