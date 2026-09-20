@@ -4,8 +4,8 @@
 Usage: swarm_doctor.py SWARM_JSON [--root REPO_ROOT] [--json]
 
 A rule that never ran and a rule that came back clean must not render the same. Rules that are
-declared here but not yet implemented answer `could-not-check: not implemented` — see ISSUES.md;
-each one is a bounded issue for the maintainer loop to build.
+declared here but not yet implemented answer `could-not-check: not implemented`; each one is a
+bounded issue on the tracker for the maintainer loop to build.
 
 Exit 1 when any rule reports a finding at level error; 0 otherwise (warnings and could-not-check
 never fail the run by themselves, they are printed).

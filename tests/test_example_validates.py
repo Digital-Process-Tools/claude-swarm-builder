@@ -98,7 +98,7 @@ def test_doctor_runs_and_reports_three_states(tmp_path):
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "swarm_doctor.py"), str(ROOT / "examples" / "clean.swarm.json"), "--json"],
                          capture_output=True, text=True)
     # exit code reflects error-level findings (e.g. R04 fires on this example on purpose,
-    # per ISSUES.md #4 — "ship the finding"); the CLI still prints JSON either way. stderr
+    # per issue #4 — "ship the finding"); the CLI still prints JSON either way. stderr
     # empty is what actually distinguishes "ran and found errors" from "crashed" here --
     # an uncaught exception also exits 1 in plain Python, so returncode alone cannot tell them apart.
     assert out.returncode in (0, 1), out.stdout + out.stderr
