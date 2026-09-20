@@ -3,9 +3,9 @@ description: Build the read-only page over swarm.json — map per flow, node car
 ---
 
 ```bash
+trap 'rm -f .swarm-findings.json' EXIT
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/swarm_doctor.py" swarm.json --json > .swarm-findings.json
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/swarm_reader.py" swarm.json --findings .swarm-findings.json -o swarm.html
-rm -f .swarm-findings.json
 ```
 
 Then publish `swarm.html` with the Artifact tool (favicon 🐝 on first publish) or `open swarm.html`. The page carries its data, doctor findings included; rebuild after every edit of `swarm.json`. The doctor's own exit code (1 on an error-level finding) is not a reason to skip the render — the whole point of the overlay is seeing what is broken on the picture, not only in text.
