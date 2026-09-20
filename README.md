@@ -17,7 +17,7 @@ A loop of agents grows one issue at a time. Each fix is right in its file; nobod
 | `/swarm-builder:declare` | write `swarm.json` from the repo's agent MDs — structure only, never guessed |
 | `/swarm-builder:read` | build the page: map per flow, node cards with in/out, edge contracts, step player |
 | `/swarm-builder:doctor` | run the rules; three states per rule, `could-not-check` never reads as `ok` |
-| `/swarm-builder:compile` | inject each agent's role summary, scripts list and incoming contract into its MD, idempotently |
+| `/swarm-builder:compile` | inject each agent's role summary, scripts list and incoming contract into its MD, idempotently -- creates a heading-only skeleton first when the MD does not exist yet |
 
 Linting prose against the JSON (a spawn named in an agent's MD with no matching edge) is doctor
 rule R09. `ISSUES.md` lists what is left, each one a bounded issue.

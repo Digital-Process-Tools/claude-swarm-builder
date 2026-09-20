@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Inject each agent's compiled contract block into its MD file.
+"""Inject each agent's compiled contract block into its MD file, creating a skeleton first
+when the file does not exist yet.
 
 Usage: swarm_compile.py SWARM_JSON [--root REPO_ROOT] [--check]
 
@@ -10,13 +11,21 @@ flow whose `to` is this agent). Creates the block at the top of the file, after 
 when the markers are absent. Re-running against unchanged input writes byte-identical files
 (idempotent; use --check to assert that rather than write).
 
+When `md` names a file that does not exist -- the design-helper's case, starting from
+swarm.json before any agent MD has been hand-written -- that file is created: frontmatter
+(`name`, `description` -- the first line of `summary`, `model`, `tools`) taken straight from
+the JSON, the compiled block exactly as for an existing file, and below it one empty heading
+per thing the human still has to write: what it does with the brief, one heading per declared
+handback state, what it refuses. No prose under any heading -- that is the human's to write, or
+the write helper's in conversation with them (docs/prior-art.md records what fabricating it
+instead produces). `--check` reports a missing file as a finding and creates nothing.
+
 An agent with `md: null` has no behaviour file by design (e.g. a pure spawner) and is skipped
-silently; an agent whose `md` does not resolve under --root is a real problem and is reported to
-stderr, with the run still processing every agent it can. `harness_agents` have no `md` and are
-never touched. A swarm with no `agents` at all is reported to stderr too -- schema validation is
-`swarm_doctor.py`'s job (R00), not this script's, but a caller running compile first should not
-read a silent "0 agent(s)" as success. Exit 1 if any agent's md could not be found or read, or
-(with --check) if any file would change; 0 otherwise.
+silently. `harness_agents` have no `md` and are never touched. A swarm with no `agents` at all
+is reported to stderr too -- schema validation is `swarm_doctor.py`'s job (R00), not this
+script's, but a caller running compile first should not read a silent "0 agent(s)" as success.
+Exit 1 if any agent's existing md could not be read, or (with --check) if any file would change
+or be created; 0 otherwise.
 """
 from __future__ import annotations
 import argparse, json, pathlib, re, sys
@@ -102,10 +111,83 @@ def inject(text: str, block: str) -> str:
     return block + eol + rest
 
 
-def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[str], list[str]]:
-    """Returns (changed_paths, error_lines). Writes files unless check is True."""
+def _first_line(text: str) -> str:
+    """The first non-blank line of `text`, stripped -- used for a skeleton's `description`
+    frontmatter field, derived from `summary` rather than invented."""
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def _yaml_scalar(value: str) -> str:
+    """A YAML frontmatter scalar for `value` -- JSON-quoted (valid YAML flow scalar syntax)
+    whenever a bare word would change meaning (`:`, `#`, quotes) or would not round-trip as
+    the plain string it is (leading/trailing space, empty)."""
+    special = (":", "#", '"', "'")
+    if value == "" or value != value.strip() or any(c in value for c in special):
+        return json.dumps(value)
+    return value
+
+
+def skeleton_frontmatter(name: str, agent: dict) -> str:
+    """Frontmatter for a newly created md -- `name` (the catalogue key), `description` (the
+    first line of `summary`), `model`, `tools` -- every value taken straight from the JSON."""
+    description = _first_line((agent.get("summary") or ""))
+    model = agent.get("model") or ""
+    tools = agent.get("tools") or []
+    lines = [
+        "---",
+        f"name: {_yaml_scalar(name)}",
+        f"description: {_yaml_scalar(description)}",
+        f"model: {_yaml_scalar(model)}",
+    ]
+    if tools:
+        lines.append("tools:")
+        lines.extend(f"  - {_yaml_scalar(t)}" for t in tools)
+    else:
+        lines.append("tools: []")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+def skeleton_headings(incoming: list[dict]) -> str:
+    """One empty heading per thing the human still has to write: what it does with the brief,
+    one heading per declared handback state (deduplicated, first-seen order across every
+    incoming edge), what it refuses. Headings only -- writing behaviour prose here is exactly
+    what docs/prior-art.md records a fabricating tool doing instead."""
+    states: list[str] = []
+    for edge in incoming:
+        for state in edge.get("handback") or []:
+            if state not in states:
+                states.append(state)
+    lines = ["## What it does with the brief", ""]
+    for state in states:
+        lines.append(f"## When it hands back `{state}`")
+        lines.append("")
+    lines.append("## What it refuses")
+    lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines) + "\n"
+
+
+def build_skeleton(name: str, agent: dict, incoming: list[dict]) -> str:
+    """The full contents of a brand-new md: frontmatter, the compiled block (identical to what
+    an existing file would get), then the heading skeleton -- and nothing else."""
+    frontmatter = skeleton_frontmatter(name, agent)
+    block = render_block(name, agent, incoming)
+    headings = skeleton_headings(incoming)
+    return frontmatter + "\n" + block + "\n" + headings
+
+
+def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[str], list[str], list[str]]:
+    """Returns (changed_paths, error_lines, created_paths). Writes/creates files unless check
+    is True; a missing md is created (skeleton), never counted as an error."""
     changed: list[str] = []
     errors: list[str] = []
+    created: list[str] = []
     agents = swarm.get("agents") or {}
     if not agents:
         errors.append("swarm.json has no agents to compile -- run swarm_doctor.py first")
@@ -114,8 +196,14 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
         if not md_rel:
             continue
         md_path = root / md_rel
+        incoming = incoming_edges(swarm, name)
         if not md_path.is_file():
-            errors.append(f"{name}: md not found at {md_path}")
+            created.append(str(md_path))
+            if not check:
+                md_path.parent.mkdir(parents=True, exist_ok=True)
+                skeleton = build_skeleton(name, agent, incoming)
+                with open(md_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(skeleton)
             continue
         try:
             # newline="": no universal-newline translation, so a file's existing line endings
@@ -129,14 +217,14 @@ def compile_swarm(swarm: dict, root: pathlib.Path, check: bool) -> tuple[list[st
         except OSError as e:
             errors.append(f"{name}: could not read {md_path}: {e}")
             continue
-        block = render_block(name, agent, incoming_edges(swarm, name))
+        block = render_block(name, agent, incoming)
         new_text = inject(text, block)
         if new_text != text:
             changed.append(str(md_path))
             if not check:
                 with open(md_path, "w", encoding="utf-8", newline="") as f:
                     f.write(new_text)
-    return changed, errors
+    return changed, errors, created
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -150,21 +238,30 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, json.JSONDecodeError) as e:
         print(f"swarm_compile: could not read {a.swarm}: {e}", file=sys.stderr)
         return 1
-    changed, errors = compile_swarm(swarm, a.root, a.check)
+    changed, errors, created = compile_swarm(swarm, a.root, a.check)
     for e in errors:
         print(f"swarm_compile: {e}", file=sys.stderr)
     if a.check:
+        if created:
+            print("swarm_compile --check: would create:")
+            for c in created:
+                print(f"  {c}")
         if changed:
             print("swarm_compile --check: would change:")
             for c in changed:
                 print(f"  {c}")
-        else:
+        if not created and not changed:
             print("swarm_compile --check: no changes")
     else:
-        print(f"compiled {len(swarm.get('agents') or {})} agent(s); {len(changed)} file(s) written")
+        for c in created:
+            print(f"created {c}")
+        print(
+            f"compiled {len(swarm.get('agents') or {})} agent(s); "
+            f"{len(changed)} file(s) written, {len(created)} file(s) created"
+        )
     if errors:
         return 1
-    if a.check and changed:
+    if a.check and (changed or created):
         return 1
     return 0
 

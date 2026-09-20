@@ -131,15 +131,76 @@ def test_compile_skips_agent_with_null_md(tmp_path):
     assert not (tmp_path / "boss.md").exists()
 
 
-def test_compile_reports_error_on_missing_md(tmp_path):
+def test_compile_creates_skeleton_for_missing_md(tmp_path):
     swarm = _swarm()
     swarm["agents"]["worker"]["md"] = "missing.md"
     swarm_path = tmp_path / "swarm.json"
     _write(swarm_path, json.dumps(swarm))
 
     r = _run(swarm_path, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "missing.md" in r.stdout
+
+    md = tmp_path / "missing.md"
+    assert md.is_file()
+    out = md.read_text(encoding="utf-8")
+
+    # frontmatter -- straight from the JSON, nothing invented
+    assert out.startswith("---\n")
+    assert "name: worker" in out
+    assert "description: Does the work." in out
+    assert "model: sonnet" in out
+    assert "- Bash" in out
+
+    # the compiled block, exactly as for an existing file
+    assert "<!-- swarm:begin -->" in out and "<!-- swarm:end -->" in out
+    assert "Does the work." in out
+    assert "`do.py` -- does the thing (always)" in out
+    assert "brief.`issue` -- the issue number to fix" in out
+    assert "handback: ok, blocked" in out
+
+    # one empty heading per declared handback state, nothing else
+    assert "## When it hands back `ok`" in out
+    assert "## When it hands back `blocked`" in out
+    assert "## What it does with the brief" in out
+    assert "## What it refuses" in out
+    for heading in ("## What it does with the brief", "## When it hands back `ok`",
+                    "## When it hands back `blocked`", "## What it refuses"):
+        idx = out.index(heading) + len(heading)
+        rest = out[idx:].lstrip("\n")
+        # nothing but blank lines (or the next heading / end of file) follows -- no prose
+        assert rest == "" or rest.startswith("##")
+
+
+def test_compile_missing_md_idempotent_after_creation(tmp_path):
+    swarm = _swarm()
+    swarm["agents"]["worker"]["md"] = "missing.md"
+    swarm_path = tmp_path / "swarm.json"
+    _write(swarm_path, json.dumps(swarm))
+
+    assert _run(swarm_path, tmp_path).returncode == 0
+    first = (tmp_path / "missing.md").read_text(encoding="utf-8")
+
+    r2 = _run(swarm_path, tmp_path)
+    assert r2.returncode == 0
+    second = (tmp_path / "missing.md").read_text(encoding="utf-8")
+    assert first == second
+
+    check = _run(swarm_path, tmp_path, extra=["--check"])
+    assert check.returncode == 0
+    assert "no changes" in check.stdout
+
+
+def test_compile_check_reports_missing_md_without_creating(tmp_path):
+    swarm = _swarm()
+    swarm["agents"]["worker"]["md"] = "missing.md"
+    swarm_path = tmp_path / "swarm.json"
+    _write(swarm_path, json.dumps(swarm))
+
+    r = _run(swarm_path, tmp_path, extra=["--check"])
     assert r.returncode == 1
-    assert "worker" in r.stderr and "missing.md" in r.stderr
+    assert "missing.md" in r.stdout
+    assert not (tmp_path / "missing.md").exists()
 
 
 def test_compile_reports_error_on_no_agents(tmp_path):
