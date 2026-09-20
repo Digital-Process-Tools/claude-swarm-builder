@@ -14,6 +14,7 @@ A loop of agents grows one issue at a time. Each fix is right in its file; nobod
 
 | | |
 |---|---|
+| `/swarm-builder:design` | interview from nothing: restate, propose structure only, render, loop until the picture is right |
 | `/swarm-builder:declare` | write `swarm.json` from the repo's agent MDs — structure only, never guessed |
 | `/swarm-builder:read` | build the page: map per flow, node cards with in/out, edge contracts, step player |
 | `/swarm-builder:doctor` | run the rules; three states per rule, `could-not-check` never reads as `ok` |
@@ -53,7 +54,7 @@ filed, not shipped — the issue number says where.
   find in prose goes under `declared_but_unrouted` with a file:line — never guessed into an
   edge. Expect this step to surprise you; writing the tree is where stale rules show.
 
-- **You have nothing yet** — `/swarm-builder:design` *(planned, #30)*. An interview, in your
+- **You have nothing yet** — `/swarm-builder:design`. An interview, in your
   domain, not a template: what runs, what triggers it, which actions are irreversible and who
   may take them, where a human must stay in the loop, what a run may cost. It restates what it
   understood, you correct it, then it proposes the fewest agents that satisfy the need — as
