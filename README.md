@@ -10,7 +10,7 @@ Structure goes in the JSON. Behaviour stays in the agent MDs, where it already i
 
 A loop of agents grows one issue at a time. Each fix is right in its file; nobody holds the graph. The result runs and still carries dead rules, duplicate paths and states nobody catches — the failure where every file is correct and the loop is wrong. Declaring the tree for [claude-oss](https://github.com/Digital-Process-Tools/claude-oss) found six of those in one evening, before any checker existed. `docs/why.md`.
 
-## Three verbs
+## The verbs
 
 | | |
 |---|---|
@@ -18,6 +18,7 @@ A loop of agents grows one issue at a time. Each fix is right in its file; nobod
 | `/swarm-builder:read` | build the page: map per flow, node cards with in/out, edge contracts, step player |
 | `/swarm-builder:doctor` | run the rules; three states per rule, `could-not-check` never reads as `ok` |
 | `/swarm-builder:compile` | inject each agent's role summary, scripts list and incoming contract into its MD, idempotently -- creates a heading-only skeleton first when the MD does not exist yet |
+| `/swarm-builder:write <agent>` | co-write one agent's behaviour under its skeleton's headings, in conversation, one agent at a time -- asks per handback state, per authority, writes only what you confirmed |
 
 Linting prose against the JSON (a spawn named in an agent's MD with no matching edge) is doctor
 rule R09. What is left is on the [issue tracker](https://github.com/Digital-Process-Tools/claude-swarm-builder/issues), each one a bounded issue.
@@ -92,12 +93,12 @@ tell those apart, you can.
 **6. Compile — `/swarm-builder:compile`.** Injects each agent's fixed part — role summary, scripts
 list, the incoming contract aggregated over every edge pointing at it — into its MD between
 `<!-- swarm:begin -->` / `<!-- swarm:end -->`. Idempotent; the prose outside the markers is yours
-and untouched. *Planned (#29)*: when the `md` does not exist yet, compile creates the skeleton —
-frontmatter from the JSON, the block, one empty heading per handback state — and nothing else.
+and untouched. When the `md` does not exist yet, compile creates the skeleton — frontmatter from
+the JSON, the block, one empty heading per handback state — and nothing else.
 
 **7. Write the behaviour.** Yours to write, one agent at a time, under the skeleton's headings:
 what it does with the brief, when it hands back each state, what it refuses.
-`/swarm-builder:write <agent>` *(planned, #31)* co-writes it with you from that agent's compiled
+`/swarm-builder:write <agent>` co-writes it with you from that agent's compiled
 contract — asks per handback state, per authority, writes only what you confirmed, never a batch
 of agents in one pass. Fabricated agent bodies are the failure `docs/prior-art.md` records; this
 is built not to be that.
