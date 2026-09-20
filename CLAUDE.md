@@ -84,7 +84,8 @@ The habits that make it comfortable rather than a chore:
 - **A rule that cannot check says `could-not-check`, never `ok`.** This is the repo's
   founding defect class; every doctor rule has three outcomes, not two.
 - **Docs are part of the change.** `README.md` and `docs/` describe what exists, not what
-  is planned; `ISSUES.md` holds the plan.
+  is planned; the plan lives on the GitHub issue tracker, nowhere in the tree. A planned
+  step the README must mention is marked *planned* with its issue number.
 - **Changelog:** one fragment per PR in `changelog.d/`, `<issue>.<section>.md`. Never
   hand-edit `CHANGELOG.md`; the release folds the fragments into it.
 

@@ -15,4 +15,4 @@ frontmatter when the markers are absent. Idempotent — a second run against unc
 writes nothing; use `--check` to assert that in CI instead of writing.
 
 Linting prose against the JSON (a spawn named in an agent's MD with no matching edge) is
-tracked separately as doctor rule R09 (`ISSUES.md` #9) — this command does not do it.
+tracked separately as doctor rule R09 (issue #9) — this command does not do it.
