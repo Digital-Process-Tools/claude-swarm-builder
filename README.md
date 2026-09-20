@@ -121,29 +121,75 @@ Ideas, not templates — each written along the axes the `design` interview asks
 double as examples of how to think about your own. The claude-oss loop in `examples/` is one more
 of these, fully worked; it is not the shape yours should take.
 
-- **Security review on every pull request.** Trigger: PR opened. One reader per changed
-  component, a verifier per candidate finding that argues *against* it, one reporter. Authority:
-  comment on the PR, nothing else; a human merges. The interesting contract is verifier →
-  reporter: `confirmed | refuted | could-not-tell`, and `could-not-tell` is reported, never
-  dropped.
-- **Dependency updates.** Trigger: a bot's PR. Changelog reader, test runner, one merger with
-  authority `merge` for patch and minor bumps only; a major bump routes to a human node. The
-  edge that matters is the one that says which bumps the merger may not take.
-- **Documentation drift.** Trigger: merge to main. Diff public surface against docs, file one
-  issue per gap, a writer lane per issue that opens a PR. Authority stops at `open PR`.
-- **Incident first response.** Trigger: an alert on a channel. Log reader, then three hypothesis
-  lanes in parallel — each hands back `supported | refuted | need-data` — and a scribe that
-  drafts the timeline. No irreversible authority anywhere; the human on call decides.
-- **Support inbox.** Trigger: new ticket. Classifier, an answerer with read access to the
-  product, a human node holding `send`. The classifier's handback is the routing table for the
-  whole swarm, so it is the contract to get right first.
-- **Nightly data quality.** Trigger: cron. One checker per table, each with a `budget_bytes`
-  small enough to run cheaply, a filer that opens issues. What it exposes when declared: which
-  checkers nobody routes when they fail.
+**Security review on every pull request** — trigger: PR opened; ~12 agents, depth 4.
+A *lead* (persistent for the PR) spawns an *inventory* agent that partitions the diff into
+components and hands back the list. Per component, a *researcher* (worktree isolation, read-only)
+hunts for candidate findings across a threat model the lead wrote from the inventory; each hands
+back `findings[] | nothing-found | could-not-read`. Per candidate, three *verifiers* in parallel
+argue *against* it — exploitability, reachability, whether a control already covers it — each
+handing back `confirmed | refuted | could-not-tell`; a *tally* script, not an agent, decides what
+survives. Per survivor, a *patch-writer* in its own worktree, then a *patch-verifier* that runs the
+tests and says `safe | breaks | could-not-run`. A *reporter* posts one comment. Authority: the
+reporter may `comment`; nobody may `push`, `merge` or `close`. A human merges. What declaring it
+shows first: the edge from verifier to tally has three states and the lead's prose only ever
+routed two.
 
-Each of these is a `swarm.json` of five to ten agents. The point of declaring one before writing
-it is the same every time: the contract between two agents is decided on the picture, not
-discovered in production.
+**Dependency updates** — trigger: a bot's PR; ~8 agents, depth 3.
+A *triager* reads the PR and classifies `patch | minor | major | unknown`. `patch` and `minor` go
+to a *changelog-reader* (what changed upstream, hands back `benign | behavioural | breaking |
+no-changelog`) and, in parallel, a *test-runner* with worktree isolation (`green | red |
+could-not-run`). Both green and benign route to a *merger* holding `merge` — the only agent with
+it — else to an *investigator* that bisects the failure and files an issue with authority
+`open-issue`. `major` and `unknown` route to a *human* node, always; a *summariser* writes what
+the human will read. A *sink* box for GitHub. The edge that matters is triager → merger: it does
+not exist, and the picture makes that absence visible.
+
+**Documentation drift** — trigger: merge to main; ~9 agents, depth 3.
+A *surface-differ* (script-heavy: public API, CLI flags, config keys) hands back the delta. Per
+changed surface, a *doc-locator* finds every page that mentions it — `found[] | none |
+could-not-search` — and a *gap-filer* opens one issue per gap. Per issue, a *writer* lane in a
+worktree drafts the change and opens a PR; a *reviewer* checks the draft against the code, not
+the old docs, and hands back `accurate | wrong | could-not-verify`; a *linker* adds the
+cross-references. Authority stops at `open PR` everywhere; a human merges docs too. Declaring it
+exposes how many writers a single merge can fan out to, and that is the `count` field on one
+edge, so the budget becomes a number.
+
+**Incident first response** — trigger: an alert on a channel; ~10 agents, depth 3.
+A *responder* (persistent for the incident) spawns a *log-reader* and a *metrics-reader* in
+parallel, each handing back `window | nothing-in-window | could-not-read`. From those, the
+responder writes three or four hypotheses and spawns one *hypothesis lane* each, in parallel,
+every lane handing back `supported | refuted | need-data` with the evidence it read. `need-data`
+routes to a *data-fetcher* with read access to production; nothing else has it. A *scribe*
+drafts the timeline as the lanes report; a *comms-drafter* writes the status-page text the human
+will post. No agent holds `deploy`, `rollback` or `post` — the on-call human does. What the
+picture shows: the responder's `inherits: full` edge to the scribe is the one place where the
+whole context is handed down, so it is the one to budget.
+
+**Support inbox** — trigger: new ticket; ~8 agents, depth 3.
+A *classifier* hands back one of `question | bug | account | billing | abuse | unclear` — that
+handback is the routing table for the whole swarm, so it is the contract to get right first.
+`question` goes to an *answerer* with read access to the docs and the product, then to a
+*fact-checker* that re-derives every claim (`holds | wrong | could-not-check`); `bug` to a
+*reproducer* in a sandbox that hands back `reproduced | could-not-reproduce | need-info` and a
+*filer* with `open-issue`; `account` and `billing` to a *lookup* agent with read access to the
+customer record and nothing else; `abuse` and `unclear` straight to a *human*. One *sender* node
+holds `send` and is a human until the fact-checker's `wrong` rate is measured low enough to
+change that — and the JSON is where that decision is recorded when it is made.
+
+**Nightly data quality** — trigger: cron; ~10 agents, depth 2.
+A *scheduler* spawns one *checker* per table, in parallel, each with a `budget_bytes` small
+enough that twenty of them cost less than one investigator: `clean | anomalies[] |
+could-not-query`. Anomalies route to an *investigator* per table that reads the pipeline for
+that table and hands back `upstream-cause | data-cause | could-not-tell`; each cause routes to a
+*filer* with `open-issue`, and `could-not-tell` to a *human*. A *reporter* writes the morning
+digest. What declaring it exposes, every time: the checkers whose `could-not-query` state nobody
+routes — the failure where the check did not run and the digest said "clean".
+
+Each of these is a `swarm.json` of eight to twelve agents. The point of declaring one before
+writing it is the same every time: the contract between two agents is decided on the picture,
+not discovered in production — and the three-state handback (`ok | finding | could-not`) is on
+every edge, because an agent that could not do its job must never look like one that found
+nothing.
 
 ## The model, in one screen
 
