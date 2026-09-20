@@ -19,8 +19,8 @@ A loop of agents grows one issue at a time. Each fix is right in its file; nobod
 | `/swarm-builder:doctor` | run the rules; three states per rule, `could-not-check` never reads as `ok` |
 | `/swarm-builder:compile` | inject each agent's role summary, scripts list and incoming contract into its MD, idempotently |
 
-Linting prose against the JSON (a spawn named in an agent's MD with no matching edge) is not
-built yet — that is doctor rule R09. `ISSUES.md` lists what is left, each one a bounded issue.
+Linting prose against the JSON (a spawn named in an agent's MD with no matching edge) is doctor
+rule R09. `ISSUES.md` lists what is left, each one a bounded issue.
 
 ## Install
 

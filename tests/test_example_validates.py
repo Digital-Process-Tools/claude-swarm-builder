@@ -362,6 +362,197 @@ def test_r06_case_mismatch_between_declared_and_disk_is_a_known_platform_gap(tmp
     assert any("not declared by any agent" in r.detail and "known.py" in r.detail for r in results)
 
 
+# ---- R07 — two paths for one job -------------------------------------------------------
+
+
+def test_r07_fires_on_the_example_run04_run06_triage_overlap():
+    """Acceptance line from issue #7: run.04 and run.06 both feed `triager` from different
+    parents (scheduler-step, scheduler) and their `when` clauses share the normalised
+    token "triage" (from "commands/run/triage.md" and "triage_trigger.py")."""
+    swarm = json.loads((ROOT / "examples" / "claude-oss.swarm.json").read_text(encoding="utf-8"))
+    results = swarm_doctor.rule_two_paths_one_job(swarm, ROOT)
+    findings = [r for r in results if r.state == "finding"]
+    assert findings, "expected at least one finding"
+    assert all(r.level == "warning" for r in findings)
+    hit_ids = {tuple(sorted(r.ref.split(","))) for r in findings}
+    assert ("run.04", "run.06") in hit_ids
+
+
+def test_r07_ok_when_no_shared_tokens_and_handback_differs():
+    swarm = {"flows": {"f": {"root": "p", "trigger": [], "edges": [
+        {"id": "f.01", "from": "a", "to": "target", "when": "alpha bravo", "handback": ["x"]},
+        {"id": "f.02", "from": "b", "to": "target", "when": "charlie delta", "handback": ["y"]},
+    ]}}}
+    results = swarm_doctor.rule_two_paths_one_job(swarm, ROOT)
+    assert results == [swarm_doctor.Result(
+        "R07 two edges into one node from different parents with the same when", "ok", "warning")]
+
+
+def test_r07_finding_when_identical_handback_lists():
+    swarm = {"flows": {"f": {"root": "p", "trigger": [], "edges": [
+        {"id": "f.01", "from": "a", "to": "target", "when": "alpha zulu", "handback": ["done", "failed"]},
+        {"id": "f.02", "from": "b", "to": "target", "when": "bravo yankee", "handback": ["failed", "done"]},
+    ]}}}
+    results = swarm_doctor.rule_two_paths_one_job(swarm, ROOT)
+    findings = [r for r in results if r.state == "finding"]
+    assert len(findings) == 1
+    assert "identical handback lists" in findings[0].detail
+
+
+def test_r07_ignores_same_from_pair():
+    swarm = {"flows": {"f": {"root": "p", "trigger": [], "edges": [
+        {"id": "f.01", "from": "a", "to": "target", "when": "triage now", "handback": ["x"]},
+        {"id": "f.02", "from": "a", "to": "target", "when": "triage later", "handback": ["y"]},
+    ]}}}
+    results = swarm_doctor.rule_two_paths_one_job(swarm, ROOT)
+    assert results == [swarm_doctor.Result(
+        "R07 two edges into one node from different parents with the same when", "ok", "warning")]
+
+
+def test_r07_ignores_prose_string_edges():
+    swarm = {"flows": {"f": {"root": "p", "trigger": [], "edges": [
+        "prose describing a -> target, not a declared edge",
+        {"id": "f.01", "from": "a", "to": "target", "when": "triage now", "handback": ["x"]},
+    ]}}}
+    results = swarm_doctor.rule_two_paths_one_job(swarm, ROOT)
+    assert results == [swarm_doctor.Result(
+        "R07 two edges into one node from different parents with the same when", "ok", "warning")]
+
+
+# ---- R08 — depth within the harness cap --------------------------------------------------
+
+
+def test_r08_could_not_check_when_cap_not_configured(tmp_path):
+    swarm = {"flows": {"f": {"root": "a", "trigger": [], "edges": [_edge("f.01", "a", "b")]}}}
+    results = swarm_doctor.rule_spawn_depth(swarm, tmp_path)
+    assert results == [swarm_doctor.Result(
+        "R08 spawn depth from root within the harness cap (cap: measure it, do not assume)",
+        "could-not-check", "warning", "cap not configured — measure it")]
+
+
+def test_r08_could_not_check_when_config_invalid_json(tmp_path):
+    (tmp_path / ".swarm-builder.json").write_text("{not json", encoding="utf-8")
+    swarm = {"flows": {}}
+    results = swarm_doctor.rule_spawn_depth(swarm, tmp_path)
+    assert results[0].state == "could-not-check"
+    assert "not configured" in results[0].detail
+
+
+def test_r08_ok_when_within_cap(tmp_path):
+    (tmp_path / ".swarm-builder.json").write_text(json.dumps({"depth_cap": 3}), encoding="utf-8")
+    swarm = {"flows": {"f": {"root": "a", "trigger": [], "edges": [
+        _edge("f.01", "a", "b"), _edge("f.02", "b", "c"),
+    ]}}}
+    results = swarm_doctor.rule_spawn_depth(swarm, tmp_path)
+    assert results == [swarm_doctor.Result(
+        "R08 spawn depth from root within the harness cap (cap: measure it, do not assume)", "ok", "warning")]
+
+
+def test_r08_finding_when_exceeds_cap(tmp_path):
+    (tmp_path / ".swarm-builder.json").write_text(json.dumps({"depth_cap": 1}), encoding="utf-8")
+    swarm = {"flows": {"f": {"root": "a", "trigger": [], "edges": [
+        _edge("f.01", "a", "b"), _edge("f.02", "b", "c"),
+    ]}}}
+    results = swarm_doctor.rule_spawn_depth(swarm, tmp_path)
+    assert len(results) == 1
+    assert results[0].state == "finding" and results[0].level == "warning"
+    assert "exceeding depth_cap 1" in results[0].detail
+
+
+def test_r08_cycle_reported_as_could_not_check(tmp_path):
+    (tmp_path / ".swarm-builder.json").write_text(json.dumps({"depth_cap": 5}), encoding="utf-8")
+    swarm = {"flows": {"f": {"root": "a", "trigger": [], "edges": [
+        _edge("f.01", "a", "b"), _edge("f.02", "b", "a"),
+    ]}}}
+    results = swarm_doctor.rule_spawn_depth(swarm, tmp_path)
+    assert any(r.state == "could-not-check" and "cycle" in r.detail for r in results)
+
+
+# ---- R09 — spawn in prose with no edge ----------------------------------------------------
+
+
+def test_r09_fires_when_prose_spawn_has_no_edge(tmp_path):
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "agents" / "sub-manager.md").write_text("spine file, nothing here", encoding="utf-8")
+    (tmp_path / "skills" / "dispatch.md").write_text('Agent(subagent_type: "oss:triager")', encoding="utf-8")
+    swarm = {
+        "agents": {
+            "sub-manager": _agent(md="agents/sub-manager.md",
+                                   context=[{"path": "skills/dispatch.md", "when": "always"}]),
+            "triager": _agent(),
+        },
+        "flows": {"f": {"root": "sub-manager", "trigger": [], "edges": []}},
+    }
+    results = swarm_doctor.rule_spawn_prose_has_edge(swarm, tmp_path)
+    findings = [r for r in results if r.state == "finding"]
+    assert len(findings) == 1
+    assert findings[0].level == "error"
+    assert "triager" in findings[0].detail
+    assert findings[0].ref == "sub-manager"
+
+
+def test_r09_ok_when_edge_exists_for_prose_spawn(tmp_path):
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "agents" / "sub-manager.md").write_text("spine file, nothing here", encoding="utf-8")
+    (tmp_path / "skills" / "dispatch.md").write_text('Agent(subagent_type: "oss:triager")', encoding="utf-8")
+    swarm = {
+        "agents": {
+            "sub-manager": _agent(md="agents/sub-manager.md",
+                                   context=[{"path": "skills/dispatch.md", "when": "always"}]),
+            "triager": _agent(),
+        },
+        "flows": {"f": {"root": "sub-manager", "trigger": [], "edges": [
+            _edge("run.21", "sub-manager", "triager"),
+        ]}},
+    }
+    results = swarm_doctor.rule_spawn_prose_has_edge(swarm, tmp_path)
+    assert results == [swarm_doctor.Result(
+        "R09 a spawn string in an agent md names an agent with no edge from that agent", "ok", "error")]
+
+
+def test_r09_ok_when_md_missing_is_r05s_job(tmp_path):
+    swarm = {"agents": {"a": _agent(md="agents/missing.md")}, "flows": {}}
+    results = swarm_doctor.rule_spawn_prose_has_edge(swarm, tmp_path)
+    assert results == [swarm_doctor.Result(
+        "R09 a spawn string in an agent md names an agent with no edge from that agent", "ok", "error")]
+
+
+def test_r09_scenario_from_the_example_sub_manager_and_dispatch(tmp_path):
+    """Acceptance line from issue #9, run against the real sub-manager catalogue entry: it
+    reads dispatch.md, which names oss:triager -> matches run.21; removing run.21 fires.
+    The real dispatch.md the example declares (skills/manager/phases/dispatch.md) lives in
+    a different repo (claude-oss) and is not checked out here (recon confirmed neither
+    agents/ nor skills/ exists in this repo), so this builds a synthetic root with the same
+    relative paths sub-manager declares and a spawn string standing in for what that file
+    actually contains, rather than depending on files this repo does not have."""
+    example = json.loads((ROOT / "examples" / "claude-oss.swarm.json").read_text(encoding="utf-8"))
+    sub_manager = example["agents"]["sub-manager"]
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "skills" / "manager" / "phases").mkdir(parents=True)
+    (tmp_path / "agents" / "sub-manager.md").write_text("spine file", encoding="utf-8")
+    (tmp_path / "skills" / "manager" / "phases" / "dispatch.md").write_text(
+        'Agent(subagent_type: "oss:triager")', encoding="utf-8")
+    swarm = {
+        "agents": {"sub-manager": sub_manager, "triager": _agent()},
+        "flows": {"run": {"root": "sub-manager", "trigger": [], "edges": [
+            {"id": "run.21", "from": "sub-manager", "to": "triager", "handback": []},
+        ]}},
+    }
+    ok_results = swarm_doctor.rule_spawn_prose_has_edge(swarm, tmp_path)
+    assert ok_results == [swarm_doctor.Result(
+        "R09 a spawn string in an agent md names an agent with no edge from that agent", "ok", "error")]
+
+    swarm["flows"]["run"]["edges"] = []
+    fired = swarm_doctor.rule_spawn_prose_has_edge(swarm, tmp_path)
+    findings = [r for r in fired if r.state == "finding"]
+    assert len(findings) == 1
+    assert findings[0].level == "error"
+    assert "triager" in findings[0].detail
+    assert findings[0].ref == "sub-manager"
+
+
 def test_plain_text_output_sanitizes_embedded_newlines(tmp_path):
     # a swarm.json value is untrusted on an external pull request; an embedded newline in a
     # finding's detail must not be able to forge a second, fake result line in plain-text mode.

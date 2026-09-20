@@ -203,6 +203,216 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
     return out
 
 
+_WHEN_STOPWORDS = {"and", "or", "not", "the", "was", "for", "are", "with", "from", "that", "this"}
+
+
+def _when_tokens(when: str | None) -> set[str]:
+    """Normalise a `when` string into a set of meaningful, comparable tokens.
+
+    Lowercases, treats underscores the same as any other separator (so
+    "command_file" and "command file" tokenize identically), and drops
+    stopwords, pure-digit tokens and anything shorter than three characters --
+    that last cut is deliberate: it is what keeps a shared file extension like
+    ".md" or ".py" from counting as a "shared job" between two edges whose
+    `when` clauses otherwise have nothing in common.
+    """
+    if not when:
+        return set()
+    raw = re.findall(r"[a-z0-9]+", when.lower().replace("_", " "))
+    return {t for t in raw if len(t) >= 3 and t not in _WHEN_STOPWORDS and not t.isdigit()}
+
+
+def rule_two_paths_one_job(swarm: dict, root: pathlib.Path) -> list[Result]:
+    """R07 two edges into one node from different parents with the same when."""
+    name = "R07 two edges into one node from different parents with the same when"
+    # A shared token count of 1 is the threshold: any overlap in the normalised,
+    # stopword-and-extension-filtered vocabulary of two `when` clauses feeding the
+    # same node from different parents is treated as "the same job", since the
+    # filtering above already removes the tokens too generic to mean that on their
+    # own (see the acceptance fixture: run.04 and run.06 share only "triage").
+    THRESHOLD = 1
+    by_to: dict[str, list[dict]] = {}
+    for flow in (swarm.get("flows", {}) or {}).values():
+        for edge in flow.get("edges", []) or []:
+            if not isinstance(edge, dict):
+                continue  # a prose string, not a declared edge
+            to_name = edge.get("to")
+            if to_name is None:
+                continue
+            by_to.setdefault(to_name, []).append(edge)
+    out: list[Result] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for to_name, edges in by_to.items():
+        for i in range(len(edges)):
+            for j in range(i + 1, len(edges)):
+                a, b = edges[i], edges[j]
+                if a.get("from") == b.get("from") or a.get("from") is None or b.get("from") is None:
+                    continue
+                a_id, b_id = a.get("id", ""), b.get("id", "")
+                pair_key = tuple(sorted([a_id, b_id]))
+                if pair_key in seen_pairs:
+                    continue
+                reason = None
+                shared_tokens = _when_tokens(a.get("when")) & _when_tokens(b.get("when"))
+                if len(shared_tokens) >= THRESHOLD:
+                    reason = f"share when tokens: {', '.join(sorted(shared_tokens))}"
+                else:
+                    a_handback, b_handback = a.get("handback") or [], b.get("handback") or []
+                    if a_handback and sorted(a_handback) == sorted(b_handback):
+                        reason = "identical handback lists"
+                if reason:
+                    seen_pairs.add(pair_key)
+                    out.append(Result(name, "finding", "warning",
+                                       f"{a_id} and {b_id} both feed {to_name} from different parents ({reason})",
+                                       f"{a_id},{b_id}"))
+    if not out:
+        out.append(Result(name, "ok", "warning"))
+    return out
+
+
+def _load_depth_cap(root: pathlib.Path):
+    """Read `depth_cap` from `.swarm-builder.json` under root.
+
+    Returns (True, cap) when a usable integer cap was found, (False, None) for every
+    other case -- file absent, unreadable, not JSON, or the key missing/null. All of
+    those collapse to the same "no cap configured" answer for R08's purposes: this
+    doctor must never assume a default (e.g. 3) in place of a cap nobody configured.
+    """
+    cfg_path = root / ".swarm-builder.json"
+    if not cfg_path.is_file():
+        return False, None
+    try:
+        data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    cap = data.get("depth_cap") if isinstance(data, dict) else None
+    if not isinstance(cap, int):
+        return False, None
+    return True, cap
+
+
+def _longest_depth_from_root(flow: dict) -> tuple[int | None, bool]:
+    """Longest spawn chain (edge count) reachable from flow["root"].
+
+    Returns (depth, cycle_detected). A cycle makes the "longest" chain undefined
+    (it is infinite), so it is reported separately rather than silently measured as
+    whatever depth the recursion happened to stop at.
+    """
+    root_node = flow.get("root")
+    if root_node is None:
+        return None, False
+    adj: dict[str, list[str]] = {}
+    for edge in flow.get("edges", []) or []:
+        if not isinstance(edge, dict):
+            continue
+        f, t = edge.get("from"), edge.get("to")
+        if f is None or t is None:
+            continue
+        adj.setdefault(f, []).append(t)
+    memo: dict[str, int] = {}
+    visiting: set[str] = set()
+    cycle = False
+
+    def dfs(node: str) -> int:
+        nonlocal cycle
+        if node in memo:
+            return memo[node]
+        if node in visiting:
+            cycle = True
+            return 0
+        visiting.add(node)
+        best = 0
+        for nxt in adj.get(node, []):
+            best = max(best, 1 + dfs(nxt))
+        visiting.discard(node)
+        memo[node] = best
+        return best
+
+    depth = dfs(root_node)
+    return depth, cycle
+
+
+def rule_spawn_depth(swarm: dict, root: pathlib.Path) -> list[Result]:
+    """R08 spawn depth from root within the harness cap (cap: measure it, do not assume)."""
+    name = "R08 spawn depth from root within the harness cap (cap: measure it, do not assume)"
+    cap_found, cap = _load_depth_cap(root)
+    if not cap_found:
+        return [Result(name, "could-not-check", "warning", "cap not configured — measure it")]
+    out: list[Result] = []
+    max_depth = 0
+    max_flow = ""
+    for flow_name, flow in (swarm.get("flows", {}) or {}).items():
+        depth, cycle = _longest_depth_from_root(flow)
+        if cycle:
+            out.append(Result(name, "could-not-check", "warning",
+                               f"flow {flow_name!r} contains a spawn cycle; depth cannot be measured", flow_name))
+            continue
+        if depth is None:
+            continue
+        if depth > max_depth:
+            max_depth = depth
+            max_flow = flow_name
+    if max_depth > cap:
+        out.append(Result(name, "finding", "warning",
+                           f"longest spawn chain is {max_depth} edge(s) from root, exceeding depth_cap {cap}",
+                           max_flow))
+    if not out:
+        out.append(Result(name, "ok", "warning"))
+    return out
+
+
+_SPAWN_RE = re.compile(r'subagent_type["\']?\s*[:=]\s*["\']([^"\']+)["\']')
+
+
+def rule_spawn_prose_has_edge(swarm: dict, root: pathlib.Path) -> list[Result]:
+    """R09 a spawn string in an agent md names an agent with no edge from that agent."""
+    name = "R09 a spawn string in an agent md names an agent with no edge from that agent"
+    agents: dict = {}
+    agents.update(swarm.get("agents", {}) or {})
+    agents.update(swarm.get("harness_agents", {}) or {})
+    edges_from: dict[str, set[str]] = {}
+    for flow in (swarm.get("flows", {}) or {}).values():
+        for edge in flow.get("edges", []) or []:
+            if not isinstance(edge, dict):
+                continue  # a prose string, not a declared edge
+            f, t = edge.get("from"), edge.get("to")
+            if f is None or t is None:
+                continue
+            edges_from.setdefault(f, set()).add(t)
+    out: list[Result] = []
+    for agent_name, agent in agents.items():
+        declared_paths: list[str] = []
+        if agent.get("md") is not None:
+            declared_paths.append(agent["md"])
+        for ctx in agent.get("context", []) or []:
+            p = ctx.get("path") if isinstance(ctx, dict) else None
+            if p is not None:
+                declared_paths.append(p)
+        spawned: set[str] = set()
+        for declared in declared_paths:
+            status, result = _under_root(root, declared)
+            if status != "ok" or not result.is_file():
+                continue  # missing/escaping md or context file is R05's job to flag, not R09's
+            try:
+                text = result.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            spawned |= set(_SPAWN_RE.findall(text))
+        declared_targets = edges_from.get(agent_name, set())
+        for spawned_name in sorted(spawned):
+            # a subagent_type string may carry a plugin prefix (e.g. "oss:triager") that
+            # the swarm's own agent catalogue names without it ("triager") -- match either.
+            bare_name = spawned_name.rsplit(":", 1)[-1]
+            if spawned_name in declared_targets or bare_name in declared_targets:
+                continue
+            out.append(Result(name, "finding", "error",
+                               f"{agent_name}'s prose spawns {spawned_name!r} with no edge {agent_name} -> {spawned_name}",
+                               agent_name))
+    if not out:
+        out.append(Result(name, "ok", "error"))
+    return out
+
+
 RULES = [
     rule_schema,
     not_implemented("R01 every edge names a declared agent (from, to)", "error"),
@@ -211,9 +421,9 @@ RULES = [
     rule_authority_subset,
     rule_md_hash_budget,
     rule_scripts_declared,
-    not_implemented("R07 two edges into one node from different parents with the same when", "warning"),
-    not_implemented("R08 spawn depth from root within the harness cap (cap: measure it, do not assume)", "warning"),
-    not_implemented("R09 a spawn string in an agent md names an agent with no edge from that agent", "error"),
+    rule_two_paths_one_job,
+    rule_spawn_depth,
+    rule_spawn_prose_has_edge,
 ]
 
 
