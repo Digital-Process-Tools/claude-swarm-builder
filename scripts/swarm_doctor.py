@@ -203,7 +203,15 @@ def rule_scripts_declared(swarm: dict, root: pathlib.Path) -> list[Result]:
     return out
 
 
-_WHEN_STOPWORDS = {"and", "or", "not", "the", "was", "for", "are", "with", "from", "that", "this"}
+_WHEN_STOPWORDS = {
+    "and", "or", "not", "the", "was", "for", "are", "with", "from", "that", "this",
+    "after", "before", "when", "then", "once", "during", "while", "until", "only",
+    "both", "each", "same", "than", "into", "onto", "over", "under", "without",
+    "within", "across", "about", "above", "below", "again", "further", "here",
+    "there", "all", "any", "few", "more", "most", "other", "some", "such", "nor",
+    "own", "too", "very", "can", "will", "just", "should", "now", "test", "tests",
+    "pass", "fail", "passes", "fails", "run", "done", "step", "check",
+}
 
 
 def _when_tokens(when: str | None) -> set[str]:
@@ -286,7 +294,9 @@ def _load_depth_cap(root: pathlib.Path):
     except (OSError, json.JSONDecodeError):
         return False, None
     cap = data.get("depth_cap") if isinstance(data, dict) else None
-    if not isinstance(cap, int):
+    # bool is a subclass of int in Python -- `"depth_cap": true` must not silently pass
+    # as a cap of 1; that is a misconfiguration, not a considered value.
+    if not isinstance(cap, int) or isinstance(cap, bool):
         return False, None
     return True, cap
 
@@ -339,8 +349,8 @@ def rule_spawn_depth(swarm: dict, root: pathlib.Path) -> list[Result]:
     if not cap_found:
         return [Result(name, "could-not-check", "warning", "cap not configured — measure it")]
     out: list[Result] = []
-    max_depth = 0
-    max_flow = ""
+    # One Result per flow that exceeds the cap -- not just the single deepest flow overall --
+    # so a second, independently-over-cap flow is never hidden behind the worst offender.
     for flow_name, flow in (swarm.get("flows", {}) or {}).items():
         depth, cycle = _longest_depth_from_root(flow)
         if cycle:
@@ -349,13 +359,10 @@ def rule_spawn_depth(swarm: dict, root: pathlib.Path) -> list[Result]:
             continue
         if depth is None:
             continue
-        if depth > max_depth:
-            max_depth = depth
-            max_flow = flow_name
-    if max_depth > cap:
-        out.append(Result(name, "finding", "warning",
-                           f"longest spawn chain is {max_depth} edge(s) from root, exceeding depth_cap {cap}",
-                           max_flow))
+        if depth > cap:
+            out.append(Result(name, "finding", "warning",
+                               f"longest spawn chain is {depth} edge(s) from root, exceeding depth_cap {cap}",
+                               flow_name))
     if not out:
         out.append(Result(name, "ok", "warning"))
     return out
@@ -392,18 +399,30 @@ def rule_spawn_prose_has_edge(swarm: dict, root: pathlib.Path) -> list[Result]:
         for declared in declared_paths:
             status, result = _under_root(root, declared)
             if status != "ok" or not result.is_file():
-                continue  # missing/escaping md or context file is R05's job to flag, not R09's
+                # a missing or escaping declared path has nothing to scan -- genuinely absent
+                # is not this rule's job to flag (R06-shaped: existence is a different rule's
+                # question), and it is not the same as "present but unreadable" below.
+                continue
             try:
                 text = result.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            except OSError as e:
+                # a file that resolved and stat'd as a file but then failed to read (a
+                # permission error, a symlink race, a device file) must not collapse into
+                # the same "nothing spawned here" result as a file that was simply empty --
+                # this doctor's whole contract is that a rule that could not look says so.
+                out.append(Result(name, "could-not-check", "error",
+                                   f"{declared} could not be read: {e}", agent_name))
                 continue
             spawned |= set(_SPAWN_RE.findall(text))
+        # a subagent_type string may carry a plugin prefix (e.g. "oss:triager") that the
+        # swarm's own agent catalogue names without it ("triager"), or the other way around
+        # (an edge declared to "oss:triager" while the prose spawns bare "triager") --
+        # normalise both sides to their bare form before comparing, not just the spawned name.
         declared_targets = edges_from.get(agent_name, set())
+        normalized_targets = declared_targets | {t.rsplit(":", 1)[-1] for t in declared_targets}
         for spawned_name in sorted(spawned):
-            # a subagent_type string may carry a plugin prefix (e.g. "oss:triager") that
-            # the swarm's own agent catalogue names without it ("triager") -- match either.
             bare_name = spawned_name.rsplit(":", 1)[-1]
-            if spawned_name in declared_targets or bare_name in declared_targets:
+            if spawned_name in normalized_targets or bare_name in normalized_targets:
                 continue
             out.append(Result(name, "finding", "error",
                                f"{agent_name}'s prose spawns {spawned_name!r} with no edge {agent_name} -> {spawned_name}",
