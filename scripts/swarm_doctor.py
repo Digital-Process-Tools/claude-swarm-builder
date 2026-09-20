@@ -227,6 +227,15 @@ def _shape_problem(swarm: dict) -> str | None:
             edges = flow.get("edges")
             if edges is not None and not isinstance(edges, list):
                 return f"swarm['flows'][{fname!r}]['edges'] is not an array"
+            if isinstance(edges, list):
+                for i, edge in enumerate(edges):
+                    if not isinstance(edge, dict):
+                        continue  # a bare-string edge, R01-R03's own job to skip, not a shape problem
+                    for key in ("from", "to"):
+                        val = edge.get(key)
+                        if val is not None and not isinstance(val, str):
+                            return (f"swarm['flows'][{fname!r}]['edges'][{i}][{key!r}] is not a "
+                                    f"string ({type(val).__name__})")
     return None
 
 

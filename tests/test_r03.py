@@ -66,7 +66,7 @@ def test_terminal_edge_is_exempt_even_with_unrouted_states():
     ]
 
 
-def test_plain_text_output_cannot_forge_an_extra_console_line():
+def test_plain_text_output_cannot_forge_an_extra_console_line(tmp_path):
     # An edge id (or any Result.ref/.detail) is content from the file being checked, not
     # something this script controls the shape of. A newline inside it must not be able to
     # fabricate a second, fake report line in the plain-text (--json-less) output. The
@@ -91,16 +91,16 @@ def test_plain_text_output_cannot_forge_an_extra_console_line():
             }
         },
     }
-    import json, pathlib as _pathlib, subprocess as _subprocess, sys as _sys
-    tmp = _pathlib.Path(ROOT) / "_scratch_forge_test.json"
+    import json, subprocess as _subprocess, sys as _sys
+    # a fixture-owned temp path, not a fixed name under the repo root: two instances of this
+    # test running concurrently (e.g. under pytest-xdist) must not collide on or leave behind
+    # a scratch file at a shared, well-known path.
+    tmp = tmp_path / "_scratch_forge_test.json"
     tmp.write_text(json.dumps(swarm), encoding="utf-8")
-    try:
-        out = _subprocess.run(
-            [_sys.executable, str(ROOT / "scripts" / "swarm_doctor.py"), str(tmp), "--root", str(ROOT)],
-            capture_output=True, text=True,
-        )
-    finally:
-        tmp.unlink()
+    out = _subprocess.run(
+        [_sys.executable, str(ROOT / "scripts" / "swarm_doctor.py"), str(tmp), "--root", str(ROOT)],
+        capture_output=True, text=True,
+    )
 
     assert "FORGED" not in out.stdout.splitlines()[0]
     for line in out.stdout.splitlines():

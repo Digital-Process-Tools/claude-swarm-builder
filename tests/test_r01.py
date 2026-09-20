@@ -38,6 +38,25 @@ def test_malformed_agents_shape_is_could_not_check_not_a_crash():
     assert "agents" in results[0].detail
 
 
+def test_edge_with_non_string_from_is_could_not_check_not_a_crash():
+    # An edge whose "from" is a JSON array (schema-invalid, but not something R00 stops R01
+    # from seeing first) used to crash rule_r01 with an unhandled TypeError: unhashable type
+    # 'list' the moment it reached `name not in known` -- would this test still pass if the
+    # code did nothing? no: an unpatched rule_r01 raises here instead of returning.
+    swarm = {
+        "agents": {"a": {}, "b": {}},
+        "harness_agents": {},
+        "flows": {"f": {"root": "a", "edges": [{"id": "f.01", "from": ["a"], "to": "b"}]}},
+    }
+
+    results = _r01(swarm)
+
+    assert len(results) == 1
+    assert results[0].state == "could-not-check"
+    assert results[0].level == "error"
+    assert "not a string" in results[0].detail
+
+
 def test_edge_to_ghost_is_a_finding():
     swarm = _load_example()
     # Point an existing edge's `to` at an agent that does not exist anywhere.
