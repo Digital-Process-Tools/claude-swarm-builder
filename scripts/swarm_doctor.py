@@ -575,6 +575,44 @@ RULES = [
 ]
 
 
+def _known_agent_names(swarm: dict) -> set[str]:
+    names = set((swarm.get("agents") or {}).keys())
+    names |= set((swarm.get("harness_agents") or {}).keys())
+    return names
+
+
+def _known_edge_ids(swarm: dict) -> set[str]:
+    ids: set[str] = set()
+    for _fname, e in _structured_edges(swarm):
+        eid = e.get("id")
+        if eid:
+            ids.add(eid)
+    return ids
+
+
+def _classify_ref(ref: str, agent_names: set[str], edge_ids: set[str]) -> tuple[str, str]:
+    """Split a Result's overloaded `ref` into explicit (edge, agent) ids for --json.
+
+    `ref` is populated differently per rule -- a single edge id (R01, R03, R04), an agent
+    name (R02, R05, R09), a comma-joined pair of edge ids (R07), or something that is
+    neither (a flow name for R08, a bare script path for R06 when it names no agent). This
+    never rewrites `ref` itself, only classifies it: `ref` alone still carries the raw
+    value for a human reader or an older consumer of this field. Anything that resolves to
+    neither a known edge id nor a known agent name reports both as empty rather than
+    guessing -- an edge id and an agent name can never collide in the same swarm.json (R01
+    already requires every edge endpoint to be a declared agent), so this classification is
+    exact, not a best-effort heuristic, for every ref this doctor actually produces today.
+    """
+    if not ref:
+        return "", ""
+    parts = ref.split(",")
+    if parts and all(p in edge_ids for p in parts):
+        return ref, ""
+    if ref in agent_names:
+        return "", ref
+    return "", ""
+
+
 def run(swarm_path: pathlib.Path, root: pathlib.Path) -> list[Result]:
     try:
         swarm = json.loads(swarm_path.read_text(encoding="utf-8"))
@@ -600,7 +638,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {n} md_hash value(s)")
     results = run(a.swarm, a.root)
     if a.json:
-        print(json.dumps([asdict(r) for r in results], indent=2))
+        try:
+            swarm_for_ids = json.loads(a.swarm.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # run() already turned this into its own could-not-check Result above; here it
+            # just means no ref can be classified, so every record's edge/agent stay empty.
+            swarm_for_ids = {}
+        agent_names = _known_agent_names(swarm_for_ids)
+        edge_ids = _known_edge_ids(swarm_for_ids)
+        records = []
+        for r in results:
+            edge, agent = _classify_ref(r.ref, agent_names, edge_ids)
+            record = asdict(r)
+            record["edge"] = edge
+            record["agent"] = agent
+            records.append(record)
+        print(json.dumps(records, indent=2))
     else:
         def _oneline(s: str) -> str:
             # a swarm.json's own strings (an authority token, a path, an agent name) are
