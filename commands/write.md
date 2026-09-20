@@ -37,8 +37,10 @@ Then, for `$ARGUMENTS` (the catalogue key of one agent in `swarm.json`):
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/swarm_doctor.py" swarm.json --root .
    ```
-   Read R05 (md hash / budget) and R09 (a spawn named in prose with no matching edge)
-   especially -- both catch what this session just wrote into the MD.
+   Read R05 (byte budget; the `md_hash` half only fires once a hash has been baselined with
+   `swarm_doctor.py --write-hashes`, which nothing in this flow does automatically) and R09
+   (a spawn named in prose with no matching edge) especially -- both catch what this session
+   just wrote into the MD.
 
 ## What it refuses
 
@@ -48,3 +50,6 @@ Then, for `$ARGUMENTS` (the catalogue key of one agent in `swarm.json`):
 - Writing a heading the user has not answered. `docs/prior-art.md` records what a tool
   that fabricates agent bodies produces -- a plausible-looking prose paragraph nobody said.
   An empty heading is the honest state until the user fills it.
+- Writing into an agent with `md: null`, or a `harness_agents` entry -- both have no
+  behaviour file by design (`scripts/swarm_compile.py`'s own docstring: "skipped silently").
+  Report that there is nothing to write instead of fabricating a path or a file.
